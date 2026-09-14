@@ -19,13 +19,13 @@ Docker.
 from __future__ import annotations
 
 import os
-import resource
 import subprocess
 import sys
 import time
 
 from ais.config import Settings
 from ais.models import SandboxResult
+from ais.sandbox import procutil
 from ais.sandbox.base import Bundle, SandboxBackend, assemble_result
 
 
@@ -54,16 +54,18 @@ class LocalSandbox(SandboxBackend):
                 env=self._environment(),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                start_new_session=True,
-                preexec_fn=_apply_rlimits(limits.memory_mb, limits.wall_clock_s),
+                # preexec_fn is None on Windows, where passing a callable raises
+                # rather than being ignored.
+                preexec_fn=procutil.rlimit_preexec(limits.memory_mb, limits.wall_clock_s),
                 text=True,
                 errors="replace",
+                **procutil.spawn_kwargs(),
             )
             try:
                 process.communicate(timeout=limits.wall_clock_s)
             except subprocess.TimeoutExpired:
                 timed_out = True
-                _kill_group(process)
+                procutil.kill_tree(process)
         except OSError as exc:
             infrastructure_error = f"local backend failure: {type(exc).__name__}: {exc}"
 
@@ -86,37 +88,4 @@ class LocalSandbox(SandboxBackend):
         return environment
 
     def describe(self) -> str:
-        return "local subprocess (NOT ISOLATED - rlimits only, no container)"
-
-
-def _apply_rlimits(memory_mb: int, wall_clock_s: float):
-    """Build a ``preexec_fn`` that caps address space and CPU in the child."""
-
-    def _limit() -> None:  # pragma: no cover - runs in the forked child
-        memory_bytes = memory_mb * 1024 * 1024
-        for which, soft in (
-            (resource.RLIMIT_AS, memory_bytes),
-            (resource.RLIMIT_CPU, int(wall_clock_s) + 1),
-            (resource.RLIMIT_NPROC, 256),
-            (resource.RLIMIT_CORE, 0),
-        ):
-            try:
-                hard = resource.getrlimit(which)[1]
-                resource.setrlimit(which, (soft, hard if hard != resource.RLIM_INFINITY else soft))
-            except (ValueError, OSError):
-                pass
-
-    return _limit
-
-
-def _kill_group(process: subprocess.Popen) -> None:
-    import signal
-
-    try:
-        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
-        process.kill()
-    try:
-        process.communicate(timeout=5)
-    except subprocess.TimeoutExpired:
-        pass
+        return f"local subprocess (NOT ISOLATED - {procutil.describe_limits()}, no container)"

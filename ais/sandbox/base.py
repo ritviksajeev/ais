@@ -63,6 +63,8 @@ def build_bundle(sandbox_dir: Path, diff: str, settings: Settings) -> Bundle:
 
     shutil.copy2(SANDBOX_PACKAGE / "runner.py", control / "runner.py")
     shutil.copy2(AIS_PACKAGE / "patchkit.py", control / "patchkit.py")
+    # The runner imports this directly, so it travels with it.
+    shutil.copy2(SANDBOX_PACKAGE / "procutil.py", control / "procutil.py")
     # Named sitecustomize so CPython imports it automatically at startup.
     shutil.copy2(SANDBOX_PACKAGE / "tracer.py", control / "trace" / "sitecustomize.py")
     (control / "change.patch").write_text(diff, encoding="utf-8", newline="")

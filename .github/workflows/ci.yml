@@ -8,11 +8,17 @@ on:
 
 jobs:
   test:
-    name: pytest (py${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    name: ${{ matrix.os }} · py${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        # Windows and macOS are here because the *host* running AiS need not be
+        # Linux, even though the sandbox container always is. A module-scope
+        # `import resource` once made the whole tool unimportable on Windows
+        # before any backend was chosen; these jobs are what stops that
+        # returning.
+        os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ["3.11", "3.12"]
 
     steps:
@@ -28,14 +34,20 @@ jobs:
 
       - name: Run the AiS test suite
         # No Docker needed: the sandbox backends are stubbed or exercised
-        # locally, so all 215 tests run on a plain runner.
+        # locally, so the whole suite runs on a plain runner.
         run: pytest -q
 
       - name: Run the sample project's own suite
         working-directory: sample_project
         run: python -m pytest -q
 
+      - name: Check the CLI starts
+        # The reported bug was an ImportError three frames deep, before argument
+        # parsing. --rules touches every import without needing a daemon.
+        run: python demo.py --rules
+
       - name: Check the scenario payloads are in step with the template
+        if: runner.os == 'Linux'
         run: |
           python scenarios/build_payloads.py
           git diff --exit-code scenarios/payloads \

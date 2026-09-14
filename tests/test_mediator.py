@@ -90,7 +90,12 @@ class TestScope:
     def test_a_symlink_cannot_be_used_as_a_tunnel_out(self, mediator, tmp_path):
         secret = tmp_path / "secret.txt"
         secret.write_text("classified\n", encoding="utf-8")
-        (mediator.root / "link.py").symlink_to(secret)
+        try:
+            (mediator.root / "link.py").symlink_to(secret)
+        except (OSError, NotImplementedError) as exc:
+            # Windows only allows this for an administrator or in developer
+            # mode. Skipping is honest; silently passing would not be.
+            pytest.skip(f"cannot create a symlink on this platform: {exc}")
         request = make_request(targets=("link.py",), proposed={"link.py": "pwned\n"})
         with pytest.raises(ScopeViolation, match="escapes the project root"):
             mediator.plan(request)

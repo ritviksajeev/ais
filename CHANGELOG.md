@@ -2,6 +2,44 @@
 
 All notable changes to AiS are recorded here.
 
+## [0.1.1-alpha] — 2026-09-14
+
+### Fixed
+- **AiS could not start on Windows at all.** `ais/sandbox/local_backend.py` and
+  `ais/sandbox/runner.py` imported `resource` at module scope. That module is
+  POSIX-only, and `demo.py` imports the local backend unconditionally while
+  wiring the pipeline together — so every invocation died with
+  `ModuleNotFoundError: No module named 'resource'` three frames deep, before
+  argument parsing, no matter which backend was requested. The Docker backend
+  was unreachable on Windows despite Docker Desktop working fine.
+
+### Added
+- `ais/sandbox/procutil.py` — one cross-platform implementation of the process
+  and resource handling both the host and the in-sandbox runner need: spawning
+  a separately-killable child, killing a process tree, applying POSIX rlimits
+  where they exist, and measuring child CPU and peak memory where that is
+  possible. It reports a missing capability rather than faking a number, and
+  ships into the sandbox alongside `patchkit`.
+- CI now runs on **Windows and macOS** as well as Linux, across Python 3.11 and
+  3.12, plus a `demo.py --rules` smoke check that exercises every import. The
+  original bug was an import error, which a test suite that never imported the
+  module on that platform could not have caught.
+- `tests/test_platform.py` — makes `resource` unimportable, exactly as Windows
+  does, then imports the whole package from scratch. Also asserts no host module
+  imports it unguarded, so this cannot regress silently.
+
+### Changed
+- The write allowlist now includes the host's own temp directory. Under the
+  local backend on Windows that is somewhere beneath `AppData`, and without it
+  every run reported its own temporary files as escaping the workspace.
+- The test suite no longer assumes a POSIX host: `/dev/null` is replaced with an
+  in-memory stream, `true` with `sys.executable`, `/etc/hostname` with a file
+  the test creates, and the symlink-escape test skips where creating a symlink
+  needs administrator rights.
+- `LocalSandbox.describe()` now states what the platform can actually enforce,
+  so a reviewer reading a report from a Windows host is not told there are
+  rlimits when there are none.
+
 ## [0.1.0-alpha] — 2026-09-14
 
 First public alpha. The full pipeline works end to end and the evaluation runs.
@@ -46,4 +84,5 @@ First public alpha. The full pipeline works end to end and the evaluation runs.
   `ctypes` can act beneath it.
 - One language, one project shape. Verification is one-shot.
 
+[0.1.1-alpha]: https://github.com/ritviksajeev/ais/releases/tag/v0.1.1-alpha
 [0.1.0-alpha]: https://github.com/ritviksajeev/ais/releases/tag/v0.1.0-alpha

@@ -8,6 +8,7 @@ path or a magic number.
 from __future__ import annotations
 
 import os
+import tempfile
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -74,6 +75,30 @@ class Paths:
         return self.run_root / "reports"
 
 
+#: Paths inside the Linux sandbox image, plus this host's own temp directory.
+#: The host entry matters only for the local backend, where the run happens on
+#: the host filesystem -- on Windows that is somewhere under AppData, and
+#: without it every run reports its own temp files as escaping the workspace.
+def _write_allowlist() -> tuple[str, ...]:
+    container = (
+        "/workspace",
+        "/tmp",
+        "/out",
+        "/var/tmp",
+        "/dev/null",
+        "/dev/zero",
+        "/dev/full",
+        "/dev/random",
+        "/dev/urandom",
+        "/dev/tty",
+        "/dev/stdout",
+        "/dev/stderr",
+        "/dev/fd",
+    )
+    host_temp = os.path.realpath(tempfile.gettempdir())
+    return container if host_temp in container else container + (host_temp,)
+
+
 @dataclass(frozen=True)
 class Settings:
     """Everything a pipeline run needs, resolved once at startup."""
@@ -96,21 +121,7 @@ class Settings:
     #: single run: without them, every scenario -- benign ones included --
     #: reports an attempted write outside the workspace, and the rule stops
     #: distinguishing anything.
-    write_allowlist: tuple[str, ...] = (
-        "/workspace",
-        "/tmp",
-        "/out",
-        "/var/tmp",
-        "/dev/null",
-        "/dev/zero",
-        "/dev/full",
-        "/dev/random",
-        "/dev/urandom",
-        "/dev/tty",
-        "/dev/stdout",
-        "/dev/stderr",
-        "/dev/fd",
-    )
+    write_allowlist: tuple[str, ...] = field(default_factory=lambda: _write_allowlist())
 
     @classmethod
     def from_env(cls) -> "Settings":

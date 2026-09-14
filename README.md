@@ -3,8 +3,9 @@
 **A sandboxed, execution-verified mediation layer for AI file-editing agents.**
 
 [![tests](https://github.com/ritviksajeev/ais/actions/workflows/ci.yml/badge.svg)](https://github.com/ritviksajeev/ais/actions/workflows/ci.yml)
-![version](https://img.shields.io/badge/version-v0.1.0--alpha-a78bfa)
+![version](https://img.shields.io/badge/version-v0.1.1--alpha-a78bfa)
 ![python](https://img.shields.io/badge/python-3.11%2B-blue)
+![platform](https://img.shields.io/badge/host-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
 > Project page: **[evzero.org/ais](https://evzero.org/ais/)**
@@ -98,6 +99,13 @@ python demo.py --log           # git history of the project under mediation
 
 Docker must be running. The first run builds the sandbox image
 (`python:3.11-slim` + pytest, ~130 MB); afterwards it is reused.
+
+**Host platform.** Linux, macOS and Windows all work — the sandbox container is
+always Linux regardless. Two caveats apply to Windows and only to the
+already-non-isolating `--backend local`: POSIX resource limits do not exist
+there, so memory and CPU ceilings are not enforced, and peak memory and CPU time
+are reported as unavailable rather than guessed. `--backend docker`, the one
+that matters, behaves identically everywhere.
 
 Without a Docker daemon, `--backend local` runs the same pipeline as ordinary
 subprocesses. **That is not an isolation boundary** — see

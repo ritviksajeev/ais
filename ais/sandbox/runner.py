@@ -14,8 +14,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import resource
-import signal
 import subprocess
 import sys
 import time
@@ -25,6 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import patchkit  # noqa: E402  (shipped next to this file inside the sandbox)
+import procutil  # noqa: E402  (ditto -- keeps this runnable on a Windows host)
 
 #: Where the test command writes its structured results, inside the workspace so
 #: the write is unremarkable and never shows up as an escape in the trace.
@@ -109,7 +108,7 @@ def _run_tests(
     ]
 
     environment = _child_environment(manifest, root, workspace, control, out)
-    before = resource.getrusage(resource.RUSAGE_CHILDREN)
+    before = procutil.rusage_snapshot()
     started = time.monotonic()
 
     process = subprocess.Popen(
@@ -118,9 +117,9 @@ def _run_tests(
         env=environment,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        # Its own session, so a timeout kills the whole process tree rather than
+        # Its own process group, so a timeout kills the whole tree rather than
         # leaving a forked child alive to keep running after we stop watching.
-        start_new_session=True,
+        **procutil.spawn_kwargs(),
         text=True,
         errors="replace",
     )
@@ -129,18 +128,19 @@ def _run_tests(
         stdout, stderr = process.communicate(timeout=limits["inner_timeout_s"])
     except subprocess.TimeoutExpired:
         report["timed_out"] = True
-        stdout, stderr = _kill_tree(process)
+        stdout, stderr = procutil.kill_tree(process)
 
     report["duration_s"] = round(time.monotonic() - started, 4)
     report["exit_code"] = process.returncode
     report["stdout"] = _clip(stdout, limits["max_output_bytes"])
     report["stderr"] = _clip(stderr, limits["max_output_bytes"])
 
-    after = resource.getrusage(resource.RUSAGE_CHILDREN)
-    report["max_rss_mb"] = round(after.ru_maxrss / 1024, 2)  # ru_maxrss is KiB on Linux
-    report["cpu_time_s"] = round(
-        (after.ru_utime - before.ru_utime) + (after.ru_stime - before.ru_stime), 4
-    )
+    # Both are None where the platform cannot measure them (Windows host under
+    # the local backend). The Verifier treats an absent figure as "not observed"
+    # rather than as zero.
+    max_rss_mb, cpu_time_s = procutil.rusage_delta(before, procutil.rusage_snapshot())
+    report["max_rss_mb"] = max_rss_mb
+    report["cpu_time_s"] = cpu_time_s
 
     if junit.exists():
         report["tests"] = _parse_junit(junit)
@@ -189,18 +189,6 @@ def _child_environment(
         }
     )
     return environment
-
-
-def _kill_tree(process: subprocess.Popen) -> tuple[str, str]:
-    """SIGKILL the whole process group and collect whatever output exists."""
-    try:
-        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
-        process.kill()
-    try:
-        return process.communicate(timeout=5)
-    except subprocess.TimeoutExpired:
-        return "", "<output unavailable: process did not exit after SIGKILL>"
 
 
 def _clip(text: str | None, limit: int) -> str:

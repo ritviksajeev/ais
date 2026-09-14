@@ -50,9 +50,14 @@ def render_all(console, presentation):
 
 @pytest.fixture
 def console():
+    """A console that renders for real but discards the output."""
+    import io
+
     from rich.console import Console
 
-    return Console(file=open("/dev/null", "w"), width=100)
+    # io.StringIO rather than os.devnull: no file handle to leak, and it works
+    # identically on every platform.
+    return Console(file=io.StringIO(), width=100)
 
 
 class TestRendering:

@@ -123,9 +123,16 @@ class TestFilesystem:
         assert removes[0]["write"] is True
 
     def test_a_read_outside_the_workspace_is_recorded(self, tmp_path):
-        body = "open('/etc/hostname').read()\n"
-        opens = [r for r in run_probe(tmp_path, body) if r.get("path") == "/etc/hostname"]
-        assert opens and opens[0]["write"] is False
+        # A real file that is genuinely outside the workspace, created here so
+        # the test does not depend on any particular OS having /etc.
+        outside = tmp_path / "outside.txt"
+        outside.write_text("secret\n", encoding="utf-8")
+        body = f"open(r'{outside}').read()\n"
+        records = run_probe(tmp_path, body)
+        opens = [r for r in records if (r.get("path") or "").endswith("outside.txt")]
+        assert opens, f"a read outside the workspace was not recorded: {records}"
+        assert opens[0]["write"] is False
+        assert opens[0]["escapes_workspace"] is True
 
     def test_a_write_inside_the_workspace_is_recorded_but_marked_as_contained(self, tmp_path):
         # Recorded, because "the edit wrote these files" is useful context; but
@@ -150,7 +157,11 @@ class TestFilesystem:
 
 class TestProcesses:
     def test_a_subprocess_is_recorded(self, tmp_path):
-        body = "import subprocess\nsubprocess.run(['true'], capture_output=True)\n"
+        # sys.executable rather than 'true', which is not a command on Windows.
+        body = (
+            "import subprocess, sys\n"
+            "subprocess.run([sys.executable, '-c', 'pass'], capture_output=True)\n"
+        )
         spawns = events_named(run_probe(tmp_path, body), "subprocess.Popen")
         assert spawns and spawns[0]["category"] == "process"
 
