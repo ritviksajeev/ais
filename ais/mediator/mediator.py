@@ -24,6 +24,7 @@ from ais import patchkit
 from ais.config import Settings
 from ais.mediator import closure as closure_mod
 from ais.mediator import gitops
+from ais.sandbox import procutil
 from ais.models import ClonedFile, EditRequest, SandboxPlan
 
 #: Paths inside the project that a request may never target, whatever it claims.
@@ -69,7 +70,9 @@ class Mediator:
             raise MediationError(f"template project not found at {template}")
 
         if force and self.root.exists():
-            shutil.rmtree(self.root)
+            # Not shutil.rmtree: the repo's own .git objects are read-only, and
+            # Windows will not unlink those.
+            procutil.rmtree(self.root)
 
         if not self.root.exists():
             shutil.copytree(
@@ -190,7 +193,7 @@ class Mediator:
         """
         workspace = self.settings.paths.sandboxes / plan.request_id / "workspace"
         if workspace.exists():
-            shutil.rmtree(workspace)
+            procutil.rmtree(workspace)
         workspace.mkdir(parents=True)
 
         for cloned in plan.files:
@@ -269,7 +272,7 @@ class Mediator:
         """Destroy a rejected request's sandbox directory. The real files are untouched."""
         sandbox = self.settings.paths.sandboxes / plan.request_id
         if sandbox.exists():
-            shutil.rmtree(sandbox, ignore_errors=True)
+            procutil.rmtree(sandbox, ignore_errors=True)
 
     def rollback(self, sha: str) -> str:
         """Revert a previously approved commit. The escape hatch for a bad approval."""

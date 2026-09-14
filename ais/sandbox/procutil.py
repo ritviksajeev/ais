@@ -19,7 +19,10 @@ weaker still, and the reviewer is told so.
 from __future__ import annotations
 
 import os
+import shutil
+import stat
 import subprocess
+import sys
 
 try:  # POSIX only; absent on Windows
     import resource
@@ -138,6 +141,30 @@ def _kill_tree_windows(process: subprocess.Popen) -> None:  # pragma: no cover
             process.kill()
         except OSError:
             pass
+
+
+def rmtree(path, ignore_errors: bool = False) -> None:
+    """``shutil.rmtree`` that can also remove read-only files.
+
+    Git marks everything under ``.git/objects`` read-only, and Windows refuses
+    to unlink a read-only file — POSIX only consults the parent directory's
+    permissions, which is why this never surfaces there. The Mediator re-seeds
+    its project repository on every run, so without this the *second*
+    ``python demo.py`` on Windows dies with ``WinError 5``.
+    """
+
+    def _retry_writable(func, target, _exc):
+        try:
+            os.chmod(target, stat.S_IWRITE)
+            func(target)
+        except OSError:
+            if not ignore_errors:
+                raise
+
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=_retry_writable)
+    else:  # onexc did not exist before 3.12
+        shutil.rmtree(path, onerror=_retry_writable)
 
 
 def describe_limits() -> str:

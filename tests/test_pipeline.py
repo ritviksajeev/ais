@@ -46,7 +46,10 @@ class StubSandbox(SandboxBackend):
                 for path in workspace.rglob("*")
                 if path.is_file()
             },
-            "patch": (bundle.control / "change.patch").read_text(encoding="utf-8"),
+            # read_text_exact: the patch is written byte-exactly, so reading it
+            # back with universal-newline translation would silently differ from
+            # what the reviewer saw on a CRLF checkout.
+            "patch": patchkit.read_text_exact(str(bundle.control / "change.patch")),
         }
         return self.result_for(request_id, bundle)
 

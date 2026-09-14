@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ais.config import Settings
+from ais.sandbox import procutil
 from ais.models import SandboxResult, TestSummary, TraceEvent
 
 SANDBOX_PACKAGE = Path(__file__).resolve().parent
@@ -57,7 +58,7 @@ def build_bundle(sandbox_dir: Path, diff: str, settings: Settings) -> Bundle:
 
     control, out = bundle.control, bundle.out
     if control.exists():
-        shutil.rmtree(control)
+        procutil.rmtree(control)
     (control / "trace").mkdir(parents=True)
     out.mkdir(parents=True, exist_ok=True)
 

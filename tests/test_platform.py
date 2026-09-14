@@ -172,3 +172,59 @@ class TestAllowlist:
             host_temp == entry or host_temp.startswith(entry.rstrip("/") + os.sep)
             for entry in settings.write_allowlist
         ), f"{host_temp} is not covered by {settings.write_allowlist}"
+
+
+class TestRemovingReadOnlyTrees:
+    """Git marks its objects read-only; Windows then refuses to unlink them.
+
+    The Mediator re-seeds its project repository on every run, so this is the
+    difference between `python demo.py` working twice and failing the second
+    time with WinError 5. POSIX only consults the parent directory's
+    permissions, which is why it never surfaces there.
+    """
+
+    def _make_readonly_tree(self, root):
+        import os
+        import stat
+
+        nested = root / "objects" / "37"
+        nested.mkdir(parents=True)
+        target = nested / "37f15b16cab71556d6bc9f936e85da66901c07"
+        target.write_bytes(b"git object")
+        os.chmod(target, stat.S_IREAD)
+        return target
+
+    def test_rmtree_removes_a_read_only_file(self, tmp_path):
+        from ais.sandbox import procutil
+
+        root = tmp_path / "repo"
+        root.mkdir()
+        self._make_readonly_tree(root)
+        procutil.rmtree(root)
+        assert not root.exists()
+
+    def test_reseeding_twice_works_on_a_repo_with_read_only_objects(self, settings):
+        """The actual scenario: demo.py re-seeds on every run."""
+        from ais.mediator import Mediator
+
+        mediator = Mediator(settings)
+        first = mediator.seed(force=True)
+        assert first
+
+        # Mark a git object read-only, exactly as git does on Windows.
+        import os
+        import stat
+
+        objects = list((mediator.root / ".git" / "objects").rglob("*"))
+        for path in objects:
+            if path.is_file():
+                os.chmod(path, stat.S_IREAD)
+
+        second = mediator.seed(force=True)
+        assert second, "re-seeding over a repo with read-only objects failed"
+
+    def test_rmtree_ignore_errors_does_not_raise(self, tmp_path):
+        from ais.sandbox import procutil
+
+        missing = tmp_path / "not-here"
+        procutil.rmtree(missing, ignore_errors=True)

@@ -28,6 +28,18 @@ All notable changes to AiS are recorded here.
   does, then imports the whole package from scratch. Also asserts no host module
   imports it unguarded, so this cannot regress silently.
 
+### Fixed (second pass, found by the new Windows CI job)
+- **The second `python demo.py` run failed on Windows.** The Mediator re-seeds
+  its project repository on every run via `shutil.rmtree`, but git marks
+  everything under `.git/objects` read-only and Windows refuses to unlink a
+  read-only file. POSIX only consults the parent directory's permissions, which
+  is why this never appeared in local testing. `procutil.rmtree` now clears the
+  read-only bit and retries.
+- Two tests mixed `Path.write_text` (which translates `\n` to `\r\n` on
+  Windows) with byte-exact reads, so a CRLF checkout produced context that did
+  not match its own generated patch. They now use `write_text_exact` /
+  `read_text_exact` throughout — the helpers that exist precisely for this.
+
 ### Changed
 - The write allowlist now includes the host's own temp directory. Under the
   local backend on Windows that is somewhere beneath `AppData`, and without it

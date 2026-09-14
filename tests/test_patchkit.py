@@ -108,9 +108,12 @@ class TestRoundTrip:
         assert make_file_patch("mod.py", SOURCE, SOURCE) == ""
 
     def test_multi_file_patch(self, tmp_path):
+        # write_text_exact, not Path.write_text: the latter translates \n to
+        # \r\n on Windows, and patchkit then reads the file byte-exactly and
+        # sees context that does not match the patch it generated.
         (tmp_path / "tests").mkdir()
-        (tmp_path / "mod.py").write_text(SOURCE, encoding="utf-8")
-        (tmp_path / "tests" / "test_mod.py").write_text("assert True\n", encoding="utf-8")
+        write_text_exact(str(tmp_path / "mod.py"), SOURCE)
+        write_text_exact(str(tmp_path / "tests" / "test_mod.py"), "assert True\n")
         patch = make_patch(
             {
                 "mod.py": (SOURCE, SOURCE + "# a\n"),
@@ -118,8 +121,8 @@ class TestRoundTrip:
             }
         )
         assert sorted(apply_patch(str(tmp_path), patch)) == ["mod.py", "tests/test_mod.py"]
-        assert (tmp_path / "mod.py").read_text().endswith("# a\n")
-        assert (tmp_path / "tests" / "test_mod.py").read_text().endswith("# b\n")
+        assert read_text_exact(str(tmp_path / "mod.py")).endswith("# a\n")
+        assert read_text_exact(str(tmp_path / "tests" / "test_mod.py")).endswith("# b\n")
 
     def test_multi_file_patch_is_ordered_deterministically(self):
         changes = {
@@ -145,7 +148,7 @@ class TestPathConfinement:
 
 class TestAtomicity:
     def test_a_failing_second_file_leaves_the_first_untouched(self, tmp_path):
-        (tmp_path / "ok.py").write_text("a\n", encoding="utf-8")
+        write_text_exact(str(tmp_path / "ok.py"), "a\n")
         patch = (
             "diff --git a/ok.py b/ok.py\n--- a/ok.py\n+++ b/ok.py\n@@ -1 +1 @@\n-a\n+A\n"
             "diff --git a/missing.py b/missing.py\n--- a/missing.py\n+++ b/missing.py\n"
@@ -153,12 +156,12 @@ class TestAtomicity:
         )
         with pytest.raises(PatchError):
             apply_patch(str(tmp_path), patch)
-        assert (tmp_path / "ok.py").read_text() == "a\n", "partial write escaped the rollback"
+        assert read_text_exact(str(tmp_path / "ok.py")) == "a\n", "partial write escaped the rollback"
 
 
 class TestStrictness:
     def test_context_mismatch_is_an_error_not_a_guess(self, tmp_path):
-        (tmp_path / "a.py").write_text("one\ntwo\nthree\n", encoding="utf-8")
+        write_text_exact(str(tmp_path / "a.py"), "one\ntwo\nthree\n")
         patch = (
             "diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n"
             "@@ -1,3 +1,3 @@\n one\n-DIFFERENT\n+two2\n three\n"
@@ -172,13 +175,13 @@ class TestStrictness:
             apply_patch(str(tmp_path), patch)
 
     def test_creating_an_existing_file_is_an_error(self, tmp_path):
-        (tmp_path / "a.py").write_text("already here\n", encoding="utf-8")
+        write_text_exact(str(tmp_path / "a.py"), "already here\n")
         patch = "diff --git a/a.py b/a.py\n--- /dev/null\n+++ b/a.py\n@@ -0,0 +1 @@\n+new\n"
         with pytest.raises(PatchError, match="already exists"):
             apply_patch(str(tmp_path), patch)
 
     def test_hunk_past_end_of_file_is_an_error(self, tmp_path):
-        (tmp_path / "a.py").write_text("one\n", encoding="utf-8")
+        write_text_exact(str(tmp_path / "a.py"), "one\n")
         patch = "diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n@@ -50,1 +50,1 @@\n-x\n+y\n"
         with pytest.raises(PatchError, match="past end of file"):
             apply_patch(str(tmp_path), patch)
