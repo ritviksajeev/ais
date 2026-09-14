@@ -23,6 +23,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import time
 
 try:  # POSIX only; absent on Windows
     import resource
@@ -157,14 +158,30 @@ def rmtree(path, ignore_errors: bool = False) -> None:
         try:
             os.chmod(target, stat.S_IWRITE)
             func(target)
+            return
         except OSError:
-            if not ignore_errors:
-                raise
+            pass
+        # A handle may still be closing -- Windows reports WinError 32 for a few
+        # milliseconds after the owner lets go, and virus scanners and the search
+        # indexer open files behind your back.
+        for delay in (0.05, 0.15, 0.4):
+            time.sleep(delay)
+            try:
+                func(target)
+                return
+            except OSError:
+                continue
+        if not ignore_errors:
+            raise
 
-    if sys.version_info >= (3, 12):
-        shutil.rmtree(path, onexc=_retry_writable)
-    else:  # onexc did not exist before 3.12
-        shutil.rmtree(path, onerror=_retry_writable)
+    try:
+        if sys.version_info >= (3, 12):
+            shutil.rmtree(path, onexc=_retry_writable)
+        else:  # onexc did not exist before 3.12
+            shutil.rmtree(path, onerror=_retry_writable)
+    except FileNotFoundError:
+        if not ignore_errors:
+            raise
 
 
 def describe_limits() -> str:

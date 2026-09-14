@@ -96,6 +96,7 @@ class Pipeline:
         return self._audit
 
     def close(self) -> None:
+        self.mediator.close()
         if self._audit is not None and self._owns_audit:
             self._audit.close()
             self._audit = None

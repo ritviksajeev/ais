@@ -70,8 +70,11 @@ class Mediator:
             raise MediationError(f"template project not found at {template}")
 
         if force and self.root.exists():
-            # Not shutil.rmtree: the repo's own .git objects are read-only, and
-            # Windows will not unlink those.
+            # Release GitPython's handles on the old repo first: Windows refuses
+            # to delete a file another process -- or this one -- still has open.
+            # Then rmtree rather than shutil.rmtree, because git marks its own
+            # objects read-only and Windows will not unlink those either.
+            self.close()
             procutil.rmtree(self.root)
 
         if not self.root.exists():
@@ -89,6 +92,11 @@ class Mediator:
         else:
             self._baseline = gitops.head_sha(self._repo)
         return self._baseline
+
+    def close(self) -> None:
+        """Release the open repository. Safe to call repeatedly."""
+        gitops.close_repo(self._repo)
+        self._repo = None
 
     @property
     def repo(self):

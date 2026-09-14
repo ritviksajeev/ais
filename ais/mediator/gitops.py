@@ -38,6 +38,22 @@ def ensure_repo(path: Path) -> Repo:
     return repo
 
 
+def close_repo(repo: Repo | None) -> None:
+    """Release a repository's open file handles.
+
+    GitPython keeps the object database and pack files open. POSIX happily
+    unlinks a file that is still open, so this is invisible there -- on Windows
+    it is the difference between being able to delete the repository directory
+    and ``WinError 32``.
+    """
+    if repo is None:
+        return
+    try:
+        repo.close()
+    except Exception:  # noqa: BLE001 - closing must never be the thing that fails
+        pass
+
+
 def commit_all(repo: Repo, message: str) -> str:
     """Stage everything and commit. Returns the new commit sha."""
     repo.git.add(A=True)
