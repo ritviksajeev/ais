@@ -1,0 +1,42 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: pytest (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run the AiS test suite
+        # No Docker needed: the sandbox backends are stubbed or exercised
+        # locally, so all 215 tests run on a plain runner.
+        run: pytest -q
+
+      - name: Run the sample project's own suite
+        working-directory: sample_project
+        run: python -m pytest -q
+
+      - name: Check the scenario payloads are in step with the template
+        run: |
+          python scenarios/build_payloads.py
+          git diff --exit-code scenarios/payloads \
+            || (echo "::error::scenario payloads are stale - run scenarios/build_payloads.py" && exit 1)

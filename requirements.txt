@@ -1,0 +1,12 @@
+# AiS runtime dependencies.
+#
+# Deliberately few. The isolation boundary is Docker itself and the runtime
+# tracer is stdlib-only (PEP 578 audit hooks), so nothing here is load-bearing
+# for the security properties -- these are the SDK, git plumbing, config
+# parsing and terminal rendering.
+
+docker>=7.0,<8          # sandbox control: container lifecycle, limits, tar I/O
+GitPython>=3.1,<4       # commit an approved diff so it is attributable and revertible
+PyYAML>=6.0,<7          # the scripted editor's scenario file
+rich>=13.0              # the review CLI: diff and execution report side by side
+pytest>=8.0             # runs the AiS test suite, and the sample project's own
