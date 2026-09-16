@@ -106,6 +106,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="run destructive edits even without an isolation boundary. The local "
         "backend executes them for real -- deleting real files, opening real sockets",
     )
+    parser.add_argument(
+        "--redteam",
+        action="store_true",
+        help="generate adversarial edits against the sample project and score the "
+        "Verifier blind. Unlike --eval's ten fixed scenarios, this is meant to fail",
+    )
+    parser.add_argument(
+        "--count",
+        type=int,
+        default=16,
+        help="with --redteam, how many edits to generate (default: 16)",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="with --redteam, the generation seed (deterministic; default: 0)",
+    )
+    parser.add_argument(
+        "--redteam-out",
+        type=Path,
+        default=Path(__file__).resolve().parent / "REDTEAM.md",
+        help="with --redteam, where to write the campaign report",
+    )
     parser.add_argument("--rules", action="store_true", help="list the rule set and exit")
     parser.add_argument("--audit", action="store_true", help="show the audit log and exit")
     parser.add_argument("--log", action="store_true", help="show the mediated git log and exit")
@@ -127,6 +151,8 @@ def main(argv: list[str] | None = None) -> int:
         return show_audit(settings)
     if arguments.log:
         return show_git_log(settings)
+    if arguments.redteam:
+        return run_redteam(settings, arguments)
 
     return run_pipeline(settings, arguments)
 
@@ -368,6 +394,114 @@ def _print_evaluation(results: Evaluation) -> None:
         f"  sandbox latency       median {results.median_latency:.2f}s · "
         f"mean {results.mean_latency:.2f}s · total {results.total_latency:.1f}s"
     )
+
+
+# --------------------------------------------------------------------------
+# the red team
+# --------------------------------------------------------------------------
+
+
+def run_redteam(settings: Settings, arguments: argparse.Namespace) -> int:
+    """Generate adversarial edits and score the Verifier against them, blind."""
+    from ais.redteam import RedTeam, run_campaign, to_markdown
+
+    try:
+        pipeline_probe = Pipeline(settings, AutoReviewer(), allow_uncontained=arguments.allow_uncontained)
+    except SandboxUnavailable as exc:
+        console.print(Text(f"error: {exc}", style="bold red"))
+        return 3
+    isolated = pipeline_probe.backend.isolated
+    pipeline_probe.close()
+
+    if not isolated and not arguments.allow_uncontained:
+        console.print()
+        console.print(
+            Text(
+                "error: --redteam needs a real isolation boundary.\n"
+                "  The generated attacks execute for real, and a detection number from a "
+                "backend that contains nothing does not mean what the report says.\n"
+                "  Start Docker and re-run, or pass --allow-uncontained to override.",
+                style="bold red",
+            )
+        )
+        return 3
+
+    edits = RedTeam().generate(count=arguments.count, seed=arguments.seed)
+
+    console.print()
+    console.rule("[bold]AiS — red-team campaign", style="magenta")
+    console.print(f"  attacks   {len(edits)} generated · seed {arguments.seed}")
+    console.print(f"  project   {settings.paths.live_project}")
+
+    try:
+        result = run_campaign(
+            settings, edits, seed=arguments.seed, allow_uncontained=arguments.allow_uncontained
+        )
+    except SandboxUnavailable as exc:
+        console.print(Text(f"error: {exc}", style="bold red"))
+        return 3
+
+    _print_campaign(result)
+    arguments.redteam_out.write_text(to_markdown(result), encoding="utf-8")
+    console.print()
+    console.print(Text(f"full report written to {arguments.redteam_out}", style="dim"))
+    # A slip is the interesting outcome, not a failure of the run; a false
+    # positive is the one thing that should make this exit non-zero for CI.
+    return 1 if result.false_positives else 0
+
+
+def _print_campaign(result) -> None:
+    table = Table(title="campaign", title_justify="left", header_style="dim", expand=True)
+    table.add_column("attack", style="cyan", no_wrap=True)
+    table.add_column("family", width=12)
+    table.add_column("predicted", width=9)
+    table.add_column("verdict", width=8)
+    table.add_column("result")
+
+    for shot in result.shots:
+        classification = shot.result.classification
+        style = {
+            "detected": "green",
+            "detected (other rule)": "yellow",
+            "clean pass": "green",
+            "MISSED": "bold red",
+            "FALSE POSITIVE": "bold red",
+            "ERROR": "bold magenta",
+        }.get(classification, "")
+        label = classification
+        if shot.surprise:
+            label = f"{classification}  ({shot.surprise})"
+        table.add_row(
+            shot.edit.attack_id,
+            shot.edit.family,
+            shot.edit.predicts,
+            shot.result.verdict,
+            Text(label, style="bold yellow" if shot.surprise else style),
+        )
+
+    console.print()
+    console.print(table)
+    console.print()
+    console.print(
+        f"  detection rate   [bold]{result.detection_rate:.0%}[/]  "
+        f"({len(result.detected)}/{len(result.planted)} planted attacks caught)"
+    )
+    console.print(
+        f"  slipped through  [bold]{len(result.slipped)}[/]"
+        + ("  " + ", ".join(s.edit.attack_id for s in result.slipped) if result.slipped else "")
+    )
+    console.print(
+        f"  false positives  [bold]{len(result.false_positives)}[/]/"
+        f"{len(result.benign)} benign edits flagged"
+    )
+
+    if result.slipped:
+        console.print()
+        console.print(Text("  what slipped through:", style="bold"))
+        for shot in result.slipped:
+            console.print(
+                f"    [red]•[/] {shot.edit.attack_id} — {shot.edit.detail}"
+            )
 
 
 # --------------------------------------------------------------------------

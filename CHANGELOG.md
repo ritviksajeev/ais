@@ -5,6 +5,24 @@ All notable changes to AiS are recorded here.
 ## [Unreleased]
 
 ### Added
+- **Phase 0, the red team: `python demo.py --redteam`.** Generates adversarial
+  edits against the sample project rather than against the rule list, runs them
+  blind through the same pipeline, and scores them with the same ground-truth
+  machinery the ten scenarios use — but, unlike `--eval`, it is meant to fail.
+  A representative run is 62% detection with zero false positives and five
+  reproducible slips: dormant file operations that are not on the static
+  denylist (`open` for writing, `Path.unlink`, `shutil.copy`), a correctness
+  error on a value range no test exercises, and a broken function whose covering
+  test is marked *skip* rather than removed. Naming those precisely is the point:
+  it turns "100% on ten hand-written scenarios" from a boast into a measurement.
+
+  The catalogue (`ais/redteam/library.py`) also carries attacks that *should* be
+  caught — obfuscated or aliased calls that still execute, and denylisted
+  constructs in dead code — which confirm the tracer and static scan do what they
+  claim. Generation is deterministic in its seed, and the strategy is a seam: a
+  `ModelStrategy` backed by a live LLM would implement the same one method with
+  nothing downstream changing. The report is written to `REDTEAM.md`.
+
 - **A browser review surface: `python demo.py --ui`.** The same pipeline, with
   the decision moved out of the terminal and into a local page — a rail naming
   each of the seven steps in plain English and lighting them as they happen, a
