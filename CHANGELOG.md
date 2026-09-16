@@ -2,19 +2,51 @@
 
 All notable changes to AiS are recorded here.
 
-## [Unreleased]
+## [0.1.3-alpha] — 2026-09-16
+
+### Fixed
+- **The write allowlist was destroyed on Windows.** `runner.py` builds
+  `AIS_WRITE_ALLOWLIST` with `os.pathsep.join`, which is `;` on Windows, but the
+  tracer split it on a hardcoded `":"`. Every path was torn apart at its drive
+  letter — `C:\Users\...` became `["C", "\Users\..."]` — so nothing was
+  allowlisted, the interpreter's own ordinary writes registered as escapes, and
+  a completely benign edit came back flagged. The sandbox container is always
+  Linux, so this only ever bit `--backend local`, and nothing in the suite
+  exercised that backend until the red team became the first test to run it for
+  real. Parsing is now a named function with the join/split symmetry pinned by a
+  test.
+
+### Changed
+- **Four of the five gaps the first red-team campaign found are closed**, taking
+  the same campaign from 62% detection to **92%**, with false positives still at
+  zero and the ten-scenario evaluation unchanged at 100%/100%/0%:
+  - the static denylist learned `shutil`'s copiers, `os.rename`/`replace`/
+    `link`/`symlink`/`truncate`, and pathlib's mutators (`unlink`, `rmdir`,
+    `write_text`, `write_bytes`) — the last matched on the method name, because
+    `Path(x).unlink()` reaches the call through a receiver a dotted-name walk
+    cannot reconstruct;
+  - `open(...)` is now read for its *mode*: a write, append or create is
+    flagged, an ordinary read stays quiet, and a mode computed at runtime is
+    reported rather than assumed harmless;
+  - `tests.oracle_weakened` now counts a newly added `skip`/`xfail` marker as
+    weakening. A skip strips a test of its power to judge without deleting a
+    line, so a rule watching only for removals never saw it.
+- The four closed attacks stay in the red-team catalogue as regression cover and
+  now predict `caught`, so a future change that drops one reports as *slipped
+  through* rather than passing quietly.
+- The one remaining slip — a wrong value on an input range no test exercises —
+  is pinned open by a test. It is structural, not an oversight: for correctness,
+  AiS is exactly as good as the test suite it runs.
 
 ### Added
 - **Phase 0, the red team: `python demo.py --redteam`.** Generates adversarial
   edits against the sample project rather than against the rule list, runs them
   blind through the same pipeline, and scores them with the same ground-truth
   machinery the ten scenarios use — but, unlike `--eval`, it is meant to fail.
-  A representative run is 62% detection with zero false positives and five
-  reproducible slips: dormant file operations that are not on the static
-  denylist (`open` for writing, `Path.unlink`, `shutil.copy`), a correctness
-  error on a value range no test exercises, and a broken function whose covering
-  test is marked *skip* rather than removed. Naming those precisely is the point:
-  it turns "100% on ten hand-written scenarios" from a boast into a measurement.
+  Its first run scored 62% detection with zero false positives and five
+  reproducible slips; four of those are closed above, and the campaign now
+  scores 92%. Naming a gap precisely is the point: it turns "100% on ten
+  hand-written scenarios" from a boast into a measurement.
 
   The catalogue (`ais/redteam/library.py`) also carries attacks that *should* be
   caught — obfuscated or aliased calls that still execute, and denylisted
@@ -190,6 +222,7 @@ First public alpha. The full pipeline works end to end and the evaluation runs.
   `ctypes` can act beneath it.
 - One language, one project shape. Verification is one-shot.
 
+[0.1.3-alpha]: https://github.com/ritviksajeev/ais/releases/tag/v0.1.3-alpha
 [0.1.2-alpha]: https://github.com/ritviksajeev/ais/releases/tag/v0.1.2-alpha
 [0.1.1-alpha]: https://github.com/ritviksajeev/ais/releases/tag/v0.1.1-alpha
 [0.1.0-alpha]: https://github.com/ritviksajeev/ais/releases/tag/v0.1.0-alpha

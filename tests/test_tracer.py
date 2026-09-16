@@ -229,3 +229,42 @@ class TestNoise:
         # Reaching the end at all is the assertion: a tracer that raised inside
         # the audit hook would take the traced process down with it.
         run_probe(tmp_path, body)
+
+
+class TestPathListParsing:
+    """The allowlist the runner sends must be the allowlist the tracer reads.
+
+    These two live in different processes and, in the Docker case, on different
+    operating systems, so the join and the split have to agree by contract
+    rather than by coincidence. They did not: the tracer split on a literal ":"
+    while the runner joined on ``os.pathsep``, which is ";" on Windows. Every
+    allowlisted path was shredded at its drive letter there, so the interpreter's
+    own writes looked like escapes and a benign edit came back flagged.
+    """
+
+    @staticmethod
+    def _tracer():
+        """Load tracer.py as a module without installing its audit hook globally."""
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("ais_tracer_under_test", TRACER)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_what_the_runner_joins_is_what_the_tracer_splits(self):
+        paths = [os.path.realpath(p) for p in (os.getcwd(), os.path.expanduser("~"))]
+        # Exactly how ais/sandbox/runner.py builds AIS_WRITE_ALLOWLIST.
+        joined = os.pathsep.join(paths)
+        assert list(self._tracer().parse_path_list(joined)) == paths
+
+    def test_a_path_holding_the_other_platform_separator_is_not_split(self):
+        # The bug in one line: on Windows ``os.pathsep`` is ";" and a perfectly
+        # ordinary path contains ":", so splitting on ":" destroyed it. The
+        # symmetric property holds on POSIX, where ";" is legal in a filename.
+        foreign = ";" if os.pathsep == ":" else ":"
+        entry = f"{os.sep}tmp{os.sep}dir{foreign}name"
+        assert len(self._tracer().parse_path_list(entry)) == 1
+
+    def test_empty_entries_are_dropped(self):
+        assert self._tracer().parse_path_list("") == ()

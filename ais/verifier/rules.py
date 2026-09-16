@@ -18,6 +18,7 @@ A human still clicks Approve or Reject either way.
 
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
@@ -316,14 +317,16 @@ class TestOracleWeakened(Rule):
     id = "tests.oracle_weakened"
     title = "The edit rewrites the tests that judge it"
     description = (
-        "The diff removes or changes existing lines in a test file. Adding tests is "
-        "healthy; deleting the assertions that would have caught you is how a wrong "
-        "edit makes itself look correct, and execution alone cannot detect it."
+        "The diff removes existing lines from a test file, or silences a test with a "
+        "newly added skip. Adding tests is healthy; deleting -- or quietly disabling -- "
+        "the assertions that would have caught you is how a wrong edit makes itself "
+        "look correct, and execution alone cannot detect it."
     )
 
     def evaluate(self, ctx):
         weakened: list[str] = []
         touched: set[str] = set()
+        silenced = 0
         for file_patch in _parse(ctx.diff):
             if not _is_test_file(file_patch.path):
                 continue
@@ -331,14 +334,28 @@ class TestOracleWeakened(Rule):
             if removed:
                 touched.add(file_patch.path)
                 weakened.extend(f"{file_patch.path}: -{line.strip()}" for line in removed)
+            # A skip strips a test of its power to judge without removing a
+            # single line, so a rule watching only for deletions never sees it.
+            # The red team broke a function and marked its covering test skip:
+            # the suite went green and nothing fired.
+            for line in file_patch.added_lines:
+                if _silences_a_test(line):
+                    touched.add(file_patch.path)
+                    silenced += 1
+                    weakened.append(f"{file_patch.path}: +{line.strip()}")
         if not weakened:
             return []
         assertions = sum(1 for line in weakened if "assert" in line or "pytest.raises" in line)
+        removals = len(weakened) - silenced
+        parts = []
+        if removals:
+            parts.append(f"removes {removals} existing line(s)")
+        if silenced:
+            parts.append(f"adds {silenced} skip/xfail marker(s)")
         return [
             self.finding(
                 Severity.HIGH,
-                f"This edit removes {len(weakened)} existing line(s) from "
-                f"{len(touched)} test file(s)"
+                f"This edit {' and '.join(parts)} across {len(touched)} test file(s)"
                 + (f", including {assertions} assertion(s)" if assertions else "")
                 + ". A passing test run does not mean much when the same change "
                 "rewrote the tests. Compare the old and new assertions by hand.",
@@ -637,6 +654,25 @@ def _is_substantive(line: str) -> bool:
     """A removed line that actually changes behaviour, not blank or comment churn."""
     stripped = line.strip()
     return bool(stripped) and not stripped.startswith("#")
+
+
+#: Ways an added line stops a test from judging anything: a skip or xfail marker,
+#: or an unconditional bail-out inside the test body.
+_SILENCERS = re.compile(
+    r"@\s*(pytest\.)?mark\.(skip|skipif|xfail)\b"
+    r"|@\s*unittest\.(skip|expectedFailure)\b"
+    r"|\b(pytest|unittest)\.skip\s*\("
+    r"|\bpytest\.xfail\s*\("
+    r"|\braise\s+unittest\.SkipTest\b"
+)
+
+
+def _silences_a_test(line: str) -> bool:
+    """True when this added line disables a test rather than strengthening it."""
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#"):
+        return False
+    return bool(_SILENCERS.search(stripped))
 
 
 def _allowed(path: str | None, allowlist: tuple[str, ...]) -> bool:

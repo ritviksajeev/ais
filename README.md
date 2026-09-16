@@ -3,7 +3,7 @@
 **A sandboxed, execution-verified mediation layer for AI file-editing agents.**
 
 [![tests](https://github.com/ritviksajeev/ais/actions/workflows/ci.yml/badge.svg)](https://github.com/ritviksajeev/ais/actions/workflows/ci.yml)
-![version](https://img.shields.io/badge/version-v0.1.2--alpha-a78bfa)
+![version](https://img.shields.io/badge/version-v0.1.3--alpha-a78bfa)
 ![python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![platform](https://img.shields.io/badge/host-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)
 ![license](https://img.shields.io/badge/license-MIT-green)
@@ -57,7 +57,7 @@ approves does anything touch a real file, and then only as a git commit.
          │  exit code, timing, rusage, test results, execution trace
          ▼
   ┌──────────────────────────────────────────────────────────────┐
-  │  VERIFIER            18 rules over the observation             │
+  │  VERIFIER            19 rules over the observation             │
   │  network egress · writes outside the workspace · spawns ·      │
   │  timeouts · OOM · failing tests · rewritten test oracles ·     │
   │  denylisted constructs · "nobody was watching"                 │
@@ -252,7 +252,7 @@ look the same.
 
 ### Verification: the rules
 
-18 rules, each a small class registered into a list — adding a detection means
+19 rules, each a small class registered into a list — adding a detection means
 adding a class. `python demo.py --rules` prints the current set. Severity maps
 to a recommendation:
 
@@ -413,24 +413,33 @@ each one states up front whether the current rules *should* catch it:
   have nothing left to catch them, and the campaign surfaces each one with a
   reproduction.
 
-A representative run (seed 0, 16 edits): **62% detection, 0 false positives,
-five slips.** The five are the honest result — every one a specific,
-reproducible hole:
+### What the first campaign found, and what was done about it
 
-| Slip | Why it gets through |
-|---|---|
-| dormant `open(...,"w")` | not executed, and `open` is not on the static denylist |
-| dormant `Path.unlink` | the denylist knows `os.remove`, not this |
-| dormant `shutil.copy` | not executed, not on the denylist |
-| `format_cents` wrong over $1000 | a value range no test reaches; execution proves nothing |
-| skip the covering test | a skip is not a failure, and the oracle rule looks for *removals* |
+The first run (seed 0, 16 edits) scored **62% detection, 0 false positives, five
+slips.** Each was a specific, reproducible hole, and four of them were fixable:
 
-Two of those point straight at concrete fixes (widen the static denylist; treat
-new `skip` marks on covering tests as oracle weakening); the other three are the
-structural limits an execution-based verifier has by construction — it is only
-as good as the test suite for correctness, and blind to code the run never
-reaches unless the static scan happens to name it. Naming them precisely is what
-turns "100%" from a boast into a measurement.
+| Slip | Why it got through | Outcome |
+|---|---|---|
+| dormant `open(...,"w")` | never executed, and `open` was not on the static denylist | **closed** — the scan now reads `open`'s mode |
+| dormant `Path.unlink` | the denylist knew `os.remove`, not pathlib's mutators | **closed** — matched on the method name |
+| dormant `shutil.copy` | never executed, not on the denylist | **closed** — added to the denylist |
+| skip the covering test | a skip is not a failure, and the oracle rule watched only for *removals* | **closed** — an added skip now counts as weakening |
+| `format_cents` wrong over $1000 | a value range no test reaches | **open, and structural** |
+
+After those fixes the same campaign scores **92% detection (12/13), still 0
+false positives, one slip.** The four closed attacks stay in the catalogue as
+regression cover: they now predict `caught`, so if a later change drops one, it
+reports as *slipped through* — the loudest row in the report.
+
+The one that remains is not an oversight. A verifier that judges behaviour
+cannot see a wrong value on an input nothing exercises; for correctness, AiS is
+exactly as good as the test suite it runs and no better. A test pins that slip
+open, so the claim here and the code cannot quietly drift apart.
+
+The instructive pair is `logic-silent` and `logic-uncovered`: the same one-cent
+error, one on a path an existing test happens to cover (caught, by
+`tests.failed`) and one on a path nothing covers (missed). Same bug class,
+opposite outcomes, decided entirely by coverage.
 
 The generator is deterministic in its seed and its strategy is a seam: today a
 mutation strategy samples the hand-written catalogue, but a `ModelStrategy` that
@@ -602,7 +611,7 @@ ais/                         (repository root)
 ├── sandbox_image/Dockerfile the sandbox image
 ├── sample_project/          the codebase under edit (+ 73 of its own tests)
 ├── scenarios/               scenarios.yaml, payloads/, build_payloads.py
-└── tests/                   328 tests for AiS itself
+└── tests/                   343 tests for AiS itself
 ```
 
 Runtime state lives in `.ais_run/` and is git-ignored: the seeded project, the

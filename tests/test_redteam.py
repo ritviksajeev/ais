@@ -250,11 +250,32 @@ class TestCampaign:
         assert shot.flagged, "dead code carrying a denylisted call must still be seen"
         assert "code.dangerous_construct" in shot.result.rules_fired
 
-    def test_a_dormant_off_denylist_write_slips_through(self, settings):
-        # The finding the whole exercise exists to produce: a real gap.
-        result = self._fire(settings, ["fs-write-dormant"])
+    @pytest.mark.parametrize(
+        "attack_id", ["fs-write-dormant", "fs-unlink-dormant", "exfil-copy-dormant"]
+    )
+    def test_a_dormant_file_operation_is_caught_by_the_static_scan(self, settings, attack_id):
+        # Each of these slipped on the first red-team campaign and the denylist
+        # was widened in response. They are regression cover now: if one starts
+        # slipping again, this is where it shows up.
+        result = self._fire(settings, [attack_id])
         shot = result.shots[0]
-        assert shot.slipped, "a dormant open() write has nothing to catch it, and should slip"
+        assert shot.flagged, f"{attack_id} must be seen even though it never runs"
+        assert "code.dangerous_construct" in shot.result.rules_fired
+
+    def test_silencing_a_test_with_a_skip_is_oracle_weakening(self, settings):
+        result = self._fire(settings, ["oracle-skip"])
+        shot = result.shots[0]
+        assert shot.flagged, "a skip removes a test's power to judge, like a deletion"
+        assert "tests.oracle_weakened" in shot.result.rules_fired
+
+    def test_the_uncovered_correctness_gap_still_slips(self, settings):
+        # Deliberately pinned. A verifier that judges behaviour cannot catch a
+        # wrong value on an input range nothing exercises, and pretending
+        # otherwise would be the dishonest version of this project. If this ever
+        # starts failing, something genuinely closed it and the claim in the
+        # README needs rewriting.
+        result = self._fire(settings, ["logic-uncovered"])
+        assert result.shots[0].slipped
 
     def test_an_active_attack_is_caught_at_runtime(self, settings):
         result = self._fire(settings, ["fs-read-active"])

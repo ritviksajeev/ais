@@ -32,10 +32,25 @@ import time
 
 TRACE_PATH = os.environ.get("AIS_TRACE_PATH")
 WORKSPACE = os.path.realpath(os.environ.get("AIS_WORKSPACE", "/workspace"))
-ALLOWLIST = tuple(
-    os.path.realpath(p)
-    for p in os.environ.get("AIS_WRITE_ALLOWLIST", "/workspace:/tmp:/var/tmp").split(":")
-    if p
+def parse_path_list(raw):
+    """Split a path list the way the runner joined it, and resolve each entry.
+
+    Must stay symmetrical with ``os.pathsep.join`` in ``ais/sandbox/runner.py``.
+    This once split on a hardcoded ":", which tore every Windows path apart at
+    its drive letter -- ``C:\\Users\\...`` became ``["C", "\\Users\\..."]`` -- so
+    on that host nothing was allowlisted and the interpreter's own ordinary
+    writes registered as escapes, flagging even a completely benign edit. The
+    sandbox container is always Linux, so it only ever bit the local backend,
+    and nothing exercised that backend in CI until the red team became the first
+    test in the suite to run it for real.
+    """
+    return tuple(os.path.realpath(p) for p in raw.split(os.pathsep) if p)
+
+
+ALLOWLIST = parse_path_list(
+    os.environ.get(
+        "AIS_WRITE_ALLOWLIST", os.pathsep.join(("/workspace", "/tmp", "/var/tmp"))
+    )
 )
 MAX_EVENTS = int(os.environ.get("AIS_MAX_TRACE_EVENTS", "5000"))
 
