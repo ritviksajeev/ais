@@ -28,6 +28,20 @@ from ais.ui.state import UiState
 
 STATIC = Path(__file__).resolve().parent / "static"
 
+#: Content types for the files this package ships, pinned rather than asked of
+#: the host. ``mimetypes.guess_type`` consults the Windows registry, which
+#: reports ``application/javascript`` where Linux reports ``text/javascript``
+#: and which a user can break outright -- and a browser refuses a stylesheet or
+#: a module served under the wrong type, so a machine-specific answer here is a
+#: blank page on somebody else's machine.
+CONTENT_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".json": "application/json",
+}
+
 #: Refuse a request body larger than this. The only POST bodies are small JSON
 #: decisions, so anything bigger is a mistake or an attempt to exhaust memory.
 MAX_BODY = 64 * 1024
@@ -176,16 +190,17 @@ def _make_handler(server: ReviewServer):
             # a file elsewhere on disk.
             if not target.is_file() or STATIC.resolve() not in target.parents:
                 return self._send(HTTPStatus.NOT_FOUND, b"not found", "text/plain; charset=utf-8")
-            guessed = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
-            if guessed.startswith("text/") or guessed in ("application/javascript",):
-                guessed += "; charset=utf-8"
+            content_type = CONTENT_TYPES.get(target.suffix.lower())
+            if content_type is None:
+                guessed = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+                content_type = guessed + ("; charset=utf-8" if guessed.startswith("text/") else "")
             body = target.read_bytes()
             if target.name == "index.html":
                 # Every request needs the token, including the page's own
                 # stylesheet and script -- a browser does not carry the query
                 # string of the page over to its subresources.
                 body = body.replace(b"{{TOKEN}}", server.token.encode("ascii"))
-            self._send(HTTPStatus.OK, body, guessed)
+            self._send(HTTPStatus.OK, body, content_type)
 
     return Handler
 

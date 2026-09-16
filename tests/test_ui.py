@@ -190,10 +190,21 @@ class TestServing:
         assert server.token in body
 
     def test_the_stylesheet_and_script_are_served(self, server):
-        for name, content_type in (("app.css", "text/css"), ("app.js", "text/javascript")):
+        # The exact type matters and must not vary by host: a browser refuses a
+        # stylesheet or a script served under the wrong one. Windows'
+        # mimetypes answers "application/javascript" where Linux answers
+        # "text/javascript", so these are pinned rather than guessed.
+        for name, content_type in (
+            ("app.css", "text/css; charset=utf-8"),
+            ("app.js", "text/javascript; charset=utf-8"),
+        ):
             response = get(f"http://127.0.0.1:{server.port}/static/{name}", token=server.token)
             assert response.status == 200
-            assert response.headers["Content-Type"].startswith(content_type)
+            assert response.headers["Content-Type"] == content_type
+
+    def test_the_page_is_served_as_html(self, server):
+        response = get(f"http://127.0.0.1:{server.port}/?t={server.token}")
+        assert response.headers["Content-Type"] == "text/html; charset=utf-8"
 
     def test_state_is_json(self, server):
         payload = json.loads(get(f"http://127.0.0.1:{server.port}/api/state", token=server.token).read())
