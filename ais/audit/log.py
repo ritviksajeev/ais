@@ -23,7 +23,7 @@ import json
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from ais.models import Stage, to_json, utc_now
 
@@ -103,6 +103,28 @@ class AuditLog:
         self._connection.row_factory = sqlite3.Row
         self._connection.executescript(SCHEMA)
         self._connection.commit()
+        self._subscribers: list[Callable[[dict], None]] = []
+
+    def subscribe(self, listener: Callable[[dict], None]) -> None:
+        """Call ``listener`` with every event as it is appended.
+
+        The log is already the canonical record of what the pipeline is doing,
+        so a live view of a run is a second *reader* of that record rather than
+        a parallel event system that could disagree with it. The UI uses this;
+        nothing else needs to.
+
+        Listeners are called after the row is committed, so a listener that
+        raises cannot lose an event -- and it is never allowed to fail the write
+        either, because a display problem must not become an audit problem.
+        """
+        self._subscribers.append(listener)
+
+    def _publish(self, event: dict) -> None:
+        for listener in list(self._subscribers):
+            try:
+                listener(event)
+            except Exception:  # noqa: BLE001 - a viewer must never break the log
+                pass
 
     def close(self) -> None:
         self._connection.close()
@@ -155,6 +177,17 @@ class AuditLog:
             (run_id, request_id, timestamp, stage_value, actor, body, previous, digest),
         )
         self._connection.commit()
+        self._publish(
+            {
+                "run_id": run_id,
+                "request_id": request_id,
+                "ts": timestamp,
+                "stage": stage_value,
+                "actor": actor,
+                "payload": body,
+                "hash": digest,
+            }
+        )
         return digest
 
     def head_hash(self) -> str:

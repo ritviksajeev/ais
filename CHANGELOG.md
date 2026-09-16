@@ -2,6 +2,39 @@
 
 All notable changes to AiS are recorded here.
 
+## [Unreleased]
+
+### Added
+- **A browser review surface: `python demo.py --ui`.** The same pipeline, with
+  the decision moved out of the terminal and into a local page — a rail naming
+  each of the seven steps in plain English and lighting them as they happen, a
+  live feed of what each component just did and why, and the request itself with
+  its diff, findings, test results and the operations the edit performed while
+  it ran. The terminal shows the evidence; the page shows the mechanism.
+
+  Standard library only: no framework, no build step. It binds `127.0.0.1` and
+  never `0.0.0.0`, and the URL carries a token generated per run, because
+  "localhost" still includes whatever agent is being mediated. The page is
+  rendered from a JSON packing that omits `plan.project_root`, so the real
+  location of the files never reaches the browser.
+
+  Adding it moved no Mediator, Sandbox or Verifier code, which is what the
+  `Reviewer` seam was for.
+- `AuditLog.subscribe()`: call a listener with each event as it is appended. The
+  live view is a second reader of the hash-chained log rather than a parallel
+  event channel. A listener that raises is swallowed — a display problem must
+  never become an audit problem.
+
+### Fixed
+- The mediated repository translated line endings on Windows. `.ais_run/project`
+  is its own `git init` repo with no `.gitattributes`, so git's default
+  `core.autocrlf=true` applied to it and every `git checkout` rewrote LF to CRLF
+  on the way out of the object database. Since the Mediator checks out a fresh
+  branch per request, the bytes the sandbox executed, the human reviewed and the
+  audit log hashed were not the bytes that had been committed — on one platform
+  only. `ensure_repo` now pins `core.autocrlf=false` and `core.eol=lf` on every
+  open, including repositories left behind by earlier runs.
+
 ## [0.1.2-alpha] — 2026-09-16
 
 ### Fixed

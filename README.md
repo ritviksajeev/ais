@@ -92,6 +92,7 @@ pip install -r requirements.txt
 python -m pytest               # the test suite (no Docker needed)
 python demo.py --eval          # all 10 scenarios, non-interactive, writes EVAL.md
 python demo.py                 # the same 10, reviewed interactively
+python demo.py --ui            # review them in a browser instead of the terminal
 python demo.py --only plant-06 # one scenario
 python demo.py --rules         # what the Verifier looks for
 python demo.py --audit         # the audit trail, and verify its hash chain
@@ -130,6 +131,44 @@ install does not necessarily put the `Scripts` directory on `PATH` on Windows,
 so `pytest` alone is a coin flip there; `python -m pytest` uses whichever
 interpreter `python` already resolves to and behaves identically on every
 platform.
+
+### The review UI
+
+`python demo.py --ui` runs the identical pipeline but moves the decision out of
+the terminal and into a local page, which opens automatically:
+
+```bash
+python demo.py --ui              # opens a browser
+python demo.py --ui --no-browser # prints the URL instead
+```
+
+It exists because the terminal shows you the evidence but not the *mechanism*.
+The page has a rail down the left naming each of the seven steps in plain
+English and lighting them as they happen, a live feed of what each component
+just did and why, and then the request itself: the diff, the findings with their
+evidence, what the tests did, and the operations the edit performed while it ran
+— network calls and writes outside the sandbox marked as such. Approve and
+reject are the same two choices the CLI offers, with the same consequences.
+
+Deliberate constraints:
+
+- **Standard library only.** No framework, no build step, no `npm install`. AiS
+  already asks you to install Docker; asking for a toolchain to see what it does
+  would defeat the point.
+- **Loopback only, with a per-run token.** The page approves writes to real
+  files, so it binds `127.0.0.1` and never `0.0.0.0` — and "localhost" still
+  means every process on the machine, including whatever agent is being
+  mediated, so the URL carries a random token generated per run.
+- **It is a viewer, not a second way in.** The page is rendered from a JSON
+  packing of the request that deliberately omits `plan.project_root`; the real
+  location of the files never reaches the browser, exactly as it never reaches
+  the editor agent.
+- **The audit log is the event stream.** The live feed subscribes to the same
+  hash-chained log the run writes, rather than a parallel channel that could
+  disagree with it.
+
+`--ui` is a review surface, so it refuses to combine with `--auto` or `--eval`,
+which decide without a human.
 
 ---
 
@@ -220,9 +259,15 @@ score as a detection and the false-positive rate would be noise.
 `ais/review/base.py` defines `ReviewPresentation` (request, diff, execution
 report, original content) and `Reviewer.review() -> Decision`. That is the
 entire contract. `CliReviewer` prints the diff and the execution report side
-by side and prompts; `AutoReviewer` follows the recommendation for batch runs.
-Swapping in a web page, or running two competing layouts against each other,
-means adding a `Reviewer` — no Mediator, Sandbox or Verifier code moves.
+by side and prompts; `AutoReviewer` follows the recommendation for batch runs;
+`WebReviewer` (`ais/ui/`) publishes the request to a local page and blocks on
+the click.
+
+That seam has now been used in anger rather than merely asserted: adding the
+browser UI moved no Mediator, Sandbox or Verifier code at all. The only change
+outside `ais/ui/` was giving the audit log a `subscribe()` hook so the page can
+read the same event stream the run already writes — which is a second *reader*
+of the record, not a parallel one that could disagree with it.
 
 ### Applying an approved edit
 
@@ -471,11 +516,12 @@ ais/                         (repository root)
 │   ├── sandbox/             backends, in-sandbox runner, the audit-hook tracer
 │   ├── verifier/            rule engine and static scan
 │   ├── review/              Reviewer interface, CLI, batch stand-in
+│   ├── ui/                  local web review surface (stdlib only)
 │   └── audit/               append-only hash-chained log
 ├── sandbox_image/Dockerfile the sandbox image
 ├── sample_project/          the codebase under edit (+ 73 of its own tests)
 ├── scenarios/               scenarios.yaml, payloads/, build_payloads.py
-└── tests/                   215 tests for AiS itself
+└── tests/                   295 tests for AiS itself
 ```
 
 Runtime state lives in `.ais_run/` and is git-ignored: the seeded project, the

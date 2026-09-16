@@ -2,6 +2,7 @@
 """AiS demo entrypoint: run edit requests through the full mediation pipeline.
 
     python demo.py                 review all ten scenarios interactively
+    python demo.py --ui            review them in a browser instead of the terminal
     python demo.py --auto          non-interactive; follows the Verifier
     python demo.py --eval          run everything and write the results table
     python demo.py --only plant-06 run one scenario (substring match)
@@ -55,6 +56,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="sandbox backend. 'docker' is the real isolation boundary; 'local' is a "
         "non-isolating fallback for machines without a daemon "
         "(default: $AIS_BACKEND, else auto)",
+    )
+    parser.add_argument(
+        "--ui",
+        action="store_true",
+        help="review in a local web page instead of the terminal. Opens a browser "
+        "at 127.0.0.1 on a random port, showing each stage as it happens",
+    )
+    parser.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="with --ui, print the URL instead of opening a browser",
     )
     parser.add_argument(
         "--auto",
@@ -146,6 +158,17 @@ def run_pipeline(settings: Settings, arguments: argparse.Namespace) -> int:
         console.print(Text(f"error: {exc}", style="bold red"))
         return 2
 
+    if arguments.ui:
+        if arguments.auto or arguments.eval:
+            console.print(
+                Text(
+                    "error: --ui is a review surface; --auto and --eval decide without a human.",
+                    style="bold red",
+                )
+            )
+            return 2
+        return run_in_browser(settings, arguments, requests)
+
     non_interactive = arguments.auto or arguments.eval
     reviewer = AutoReviewer() if non_interactive else CliReviewer(console)
 
@@ -196,6 +219,46 @@ def run_pipeline(settings: Settings, arguments: argparse.Namespace) -> int:
         return 0 if not results.missed and not results.false_positives else 1
 
     return 0
+
+
+def run_in_browser(settings: Settings, arguments: argparse.Namespace, requests) -> int:
+    """Review in a local web page. The pipeline is identical; only the surface moves."""
+    from ais.ui import run_ui
+
+    def announce(url: str) -> None:
+        console.print()
+        console.rule("[bold]AiS — review in your browser", style="blue")
+        console.print(f"  open  {url}")
+        console.print(Text("  the link carries a one-time token for this run only", style="dim"))
+        console.print(
+            Text("  the page stays open after the run so you can read the summary", style="dim")
+        )
+        console.print(Text("  press Ctrl-C here to end the run early", style="dim"))
+        console.print()
+
+    try:
+        code, summary = run_ui(
+            settings,
+            requests,
+            allow_uncontained=arguments.allow_uncontained,
+            reset=not arguments.keep,
+            open_browser=not arguments.no_browser,
+            on_ready=announce,
+        )
+    except SandboxUnavailable as exc:
+        console.print(Text(f"error: {exc}", style="bold red"))
+        return 3
+    except KeyboardInterrupt:
+        console.print(Text("\nreview ended", style="dim"))
+        return 2
+
+    if summary is None:
+        return code
+    if summary.aborted and not summary.records:
+        console.print(Text(f"review did not start: {summary.abort_reason}", style="bold yellow"))
+        return 2
+    _print_summary(summary)
+    return code
 
 
 def _print_header(pipeline: Pipeline, count: int) -> None:
