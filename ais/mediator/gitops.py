@@ -26,16 +26,37 @@ def ensure_repo(path: Path) -> Repo:
     path.mkdir(parents=True, exist_ok=True)
     try:
         if (path / ".git").exists():
-            return Repo(path)
+            existing = Repo(path)
+            _configure(existing)
+            return existing
         repo = Repo.init(path, initial_branch="main")
     except GitError as exc:
         raise GitOpsError(f"could not open or create a repo at {path}: {exc}") from exc
 
+    _configure(repo)
+    return repo
+
+
+def _configure(repo: Repo) -> None:
+    """Settings the mediated repository must have, applied every time it is opened.
+
+    ``core.autocrlf`` is the load-bearing one. It defaults to ``true`` on Windows
+    installs of git, which makes ``git checkout`` rewrite every file's line
+    endings on the way out — so the content the Mediator hashes, diffs and
+    verifies would differ from the content it committed, on one platform only.
+    AiS claims that what a human approved is byte-for-byte what reaches the file;
+    a repository that silently rewrites bytes cannot honour that. Turning
+    translation off here makes the mediated project verbatim on every host.
+
+    Applied on every open rather than only at creation: a repository left behind
+    by an older version, or by a global config change, has to be corrected too.
+    """
     with repo.config_writer() as config:
         config.set_value("user", "name", MEDIATOR.name)
         config.set_value("user", "email", MEDIATOR.email)
         config.set_value("commit", "gpgsign", "false")
-    return repo
+        config.set_value("core", "autocrlf", "false")
+        config.set_value("core", "eol", "lf")
 
 
 def close_repo(repo: Repo | None) -> None:

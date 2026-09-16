@@ -12,7 +12,7 @@ import pytest
 from conftest import make_request
 
 from ais import patchkit
-from ais.mediator import MediationError, Mediator, ScopeViolation
+from ais.mediator import MediationError, Mediator, ScopeViolation, gitops
 
 
 @pytest.fixture
@@ -216,3 +216,60 @@ class TestBranchIsolation:
         mediator.apply(first, mediator.compute_diff(first), "approved")
         mediator.begin_request("second")
         assert "ais/first" in [head.name for head in mediator.repo.heads]
+
+
+def _autocrlf(repo) -> object:
+    """Read ``core.autocrlf`` back. GitPython may hand it over as a bool or a str."""
+    return repo.config_reader().get_value("core", "autocrlf")
+
+
+class TestLineEndings:
+    """A mediated repository must never translate line endings.
+
+    Git installs on Windows default to ``core.autocrlf=true``, which makes
+    ``git checkout`` rewrite LF to CRLF on the way out of the object database.
+    The Mediator checks out a fresh branch for every request, so that default
+    would hand the sandbox -- and the human reviewer -- different bytes from
+    the ones it committed, on one platform only. AiS claims that what a human
+    approved is byte-for-byte what reaches the file; a repository that quietly
+    rewrites bytes cannot honour that.
+    """
+
+    def test_the_mediated_repo_pins_the_setting(self, mediator):
+        assert _autocrlf(mediator.repo) in (False, "false")
+
+    def test_a_request_checkout_returns_the_committed_bytes(self, mediator):
+        before = patchkit.read_text_exact(str(mediator.root / "pricing.py"))
+        mediator.begin_request("req-line-endings")
+        after = patchkit.read_text_exact(str(mediator.root / "pricing.py"))
+        assert after == before
+        assert "\r" not in after
+
+    def test_reopening_corrects_a_repo_that_was_left_translating(self, tmp_path):
+        # A repository created by an older AiS, or by a host whose global git
+        # config turned translation on after the fact. Opening it has to fix it,
+        # which is why the settings are applied on every open rather than once
+        # at creation.
+        root = tmp_path / "left-translating"
+        repo = gitops.ensure_repo(root)
+        with repo.config_writer() as config:
+            config.set_value("core", "autocrlf", "true")
+
+        source = root / "sample.py"
+        patchkit.write_text_exact(str(source), "a = 1\nb = 2\n")
+        gitops.commit_all(repo, "baseline")
+        baseline = gitops.head_sha(repo)
+        # Move on, so that going back to the baseline forces git to write the
+        # file out of the object database again -- which is where translation
+        # happens. A checkout that has nothing to materialise proves nothing.
+        patchkit.write_text_exact(str(source), "a = 1\nb = 2\nc = 3\n")
+        gitops.commit_all(repo, "a later commit")
+        gitops.close_repo(repo)
+
+        reopened = gitops.ensure_repo(root)
+        try:
+            gitops.checkout_fresh_branch(reopened, "ais/req-1", baseline)
+            assert source.read_bytes() == b"a = 1\nb = 2\n"
+            assert _autocrlf(reopened) in (False, "false")
+        finally:
+            gitops.close_repo(reopened)
