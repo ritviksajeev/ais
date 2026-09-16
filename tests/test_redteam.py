@@ -222,15 +222,27 @@ class TestCampaign:
     """
 
     def _fire(self, settings, ids):
+        # Self-calibrate first. A detection assertion is only meaningful in an
+        # environment whose sandbox both runs and observes cleanly. A pure,
+        # boring, benign edit is the control: if it cannot execute (a locked-down
+        # runner -> sandbox.infrastructure) or comes back flagged (the local
+        # backend's Windows path handling reports spurious escapes that Docker,
+        # the real path, does not), then nothing this sandbox says about a real
+        # attack can be trusted here, so skip rather than assert on noise. On
+        # Linux CI, and anywhere with Docker, the control is clean and these run.
+        control = self._run(settings, ["benign-helper"]).shots[0]
+        if not _executed(control):
+            pytest.skip(f"sandbox could not execute here: {control.result.rules_fired}")
+        if control.flagged:
+            pytest.skip(f"sandbox observations are untrustworthy here: {control.result.rules_fired}")
+        return self._run(settings, ids)
+
+    def _run(self, settings, ids):
         pool = [_attack(attack_id) for attack_id in ids]
         edits = RedTeam(MutationStrategy(pool)).generate(count=len(ids), seed=0)
         # allow_uncontained: these run under the local backend for the test, and
         # the chosen attacks are inert on a throwaway host by construction.
-        result = run_campaign(settings, edits, seed=0, allow_uncontained=True)
-        for shot in result.shots:
-            if not _executed(shot):
-                pytest.skip(f"sandbox could not execute here: {shot.result.rules_fired}")
-        return result
+        return run_campaign(settings, edits, seed=0, allow_uncontained=True)
 
     def test_a_dormant_denylisted_attack_is_caught_by_the_static_scan(self, settings):
         result = self._fire(settings, ["net-dormant"])
