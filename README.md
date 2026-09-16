@@ -89,6 +89,7 @@ git clone https://github.com/ritviksajeev/ais.git
 cd ais
 pip install -r requirements.txt
 
+python -m pytest               # the test suite (no Docker needed)
 python demo.py --eval          # all 10 scenarios, non-interactive, writes EVAL.md
 python demo.py                 # the same 10, reviewed interactively
 python demo.py --only plant-06 # one scenario
@@ -111,7 +112,13 @@ Without a Docker daemon, `--backend local` runs the same pipeline as ordinary
 subprocesses. **That is not an isolation boundary** — see
 [Backends](#backends-and-the-isolation-boundary).
 
-Run the project's own test suite with `pytest` (215 tests, no Docker needed).
+Run the project's own test suite with `python -m pytest` (no Docker needed).
+
+Every command here uses `python -m <tool>` rather than a bare `pytest`. A pip
+install does not necessarily put the `Scripts` directory on `PATH` on Windows,
+so `pytest` alone is a coin flip there; `python -m pytest` uses whichever
+interpreter `python` already resolves to and behaves identically on every
+platform.
 
 ---
 

@@ -35,7 +35,7 @@ jobs:
       - name: Run the AiS test suite
         # No Docker needed: the sandbox backends are stubbed or exercised
         # locally, so the whole suite runs on a plain runner.
-        run: pytest -q
+        run: python -m pytest -q
 
       - name: Run the sample project's own suite
         working-directory: sample_project
