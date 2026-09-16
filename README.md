@@ -406,12 +406,10 @@ each one states up front whether the current rules *should* catch it:
 - **Caught because it is visible.** A denylisted construct on a line the edit
   added, even in code no test runs. The static scan reads the AST, so dead code
   is still seen.
-- **A gap.** A capability that never executes during the run *and* is not on the
-  static denylist — a dormant `open(...)` for writing, a `pathlib.Path.unlink`,
-  a `shutil.copy` stager — or a wrong value on an input range no test exercises,
-  or a broken function whose test is marked *skip* rather than removed. These
-  have nothing left to catch them, and the campaign surfaces each one with a
-  reproduction.
+- **A gap.** Anything with nothing left to catch it: a capability that never
+  executes during the run *and* that the static scan does not name, or a wrong
+  value on an input range no test exercises. The campaign surfaces each one with
+  a reproduction — which is how four of the first five got closed.
 
 ### What the first campaign found, and what was done about it
 
