@@ -30,7 +30,10 @@ All notable changes to AiS are recorded here.
     reported rather than assumed harmless;
   - `tests.oracle_weakened` now counts a newly added `skip`/`xfail` marker as
     weakening. A skip strips a test of its power to judge without deleting a
-    line, so a rule watching only for removals never saw it.
+    line, so a rule watching only for removals never saw it. A skip on its own
+    reports MEDIUM rather than HIGH: `skipif(sys.platform == "win32")` is a
+    legitimate thing to add, and blocking it outright is the kind of false
+    positive that gets a tool switched off. A deletion still blocks.
 - The four closed attacks stay in the red-team catalogue as regression cover and
   now predict `caught`, so a future change that drops one reports as *slipped
   through* rather than passing quietly.

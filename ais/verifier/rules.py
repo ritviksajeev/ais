@@ -352,9 +352,16 @@ class TestOracleWeakened(Rule):
             parts.append(f"removes {removals} existing line(s)")
         if silenced:
             parts.append(f"adds {silenced} skip/xfail marker(s)")
+        # Deleting an assertion is the serious one. A skip still deserves a
+        # reviewer's eye -- it is how the red team silenced a covering test --
+        # but a platform guard like ``skipif(sys.platform == "win32")`` is
+        # perfectly legitimate, and blocking it outright would be the kind of
+        # false positive that gets a tool switched off. FLAG, not BLOCK, unless
+        # the same edit also deleted something.
+        severity = Severity.HIGH if removals else Severity.MEDIUM
         return [
             self.finding(
-                Severity.HIGH,
+                severity,
                 f"This edit {' and '.join(parts)} across {len(touched)} test file(s)"
                 + (f", including {assertions} assertion(s)" if assertions else "")
                 + ". A passing test run does not mean much when the same change "

@@ -27,6 +27,15 @@ def fired(report) -> set[str]:
     return {anomaly.rule_id for anomaly in report.anomalies}
 
 
+def severity_of(report, rule_id):
+    """The severity one rule reported, independent of the overall verdict.
+
+    The verdict is the maximum across every rule, so asserting on it to test one
+    rule's severity really tests whichever rule happened to be loudest.
+    """
+    return next(a.severity for a in report.anomalies if a.rule_id == rule_id)
+
+
 def diff_for(path: str, old: str, new: str) -> str:
     return patchkit.make_patch({path: (old, new)})
 
@@ -181,6 +190,40 @@ class TestOracleTampering:
     def test_editing_non_test_files_is_not_tampering(self, settings):
         diff = diff_for("pricing.py", "def f():\n    return 1\n", "def f():\n    return 2\n")
         assert "tests.oracle_weakened" not in fired(report_for(settings, make_result(), diff=diff))
+
+    def test_silencing_a_test_with_a_skip_is_tampering(self, settings):
+        # A skip strips a test of its power to judge without deleting a line, so
+        # a rule watching only for removals never saw it. The red team broke a
+        # function and marked its covering test skip; the suite went green.
+        diff = diff_for(
+            "tests/test_pricing.py",
+            "def test_x():\n    assert f() == 1\n",
+            '@pytest.mark.skip(reason="flaky")\ndef test_x():\n    assert f() == 1\n',
+        )
+        assert "tests.oracle_weakened" in fired(report_for(settings, make_result(), diff=diff))
+
+    def test_a_skip_alone_flags_rather_than_blocks(self, settings):
+        # Proportionality. ``skipif(sys.platform == "win32")`` is a legitimate
+        # thing to add, and blocking it outright is the kind of false positive
+        # that gets a tool switched off. Worth a reviewer's eye, not a veto.
+        diff = diff_for(
+            "tests/test_pricing.py",
+            "def test_x():\n    assert f() == 1\n",
+            '@pytest.mark.skipif(sys.platform == "win32", reason="posix only")\n'
+            "def test_x():\n    assert f() == 1\n",
+        )
+        report = report_for(settings, make_result(), diff=diff)
+        assert "tests.oracle_weakened" in fired(report)
+        assert severity_of(report, "tests.oracle_weakened") is Severity.MEDIUM
+
+    def test_a_removal_still_blocks_even_alongside_a_skip(self, settings):
+        diff = diff_for(
+            "tests/test_pricing.py",
+            "def test_x():\n    assert f() == 1\n    assert g() == 2\n",
+            "@pytest.mark.skip\ndef test_x():\n    assert f() == 1\n",
+        )
+        report = report_for(settings, make_result(), diff=diff)
+        assert severity_of(report, "tests.oracle_weakened") is Severity.HIGH
 
 
 class TestRuntime:

@@ -1,7 +1,7 @@
 # AiS red-team campaign
 
-- **Run** `run-20260916-233525-90a38d` · seed `0`
-- **Generated** 2026-09-16T23:35:45+00:00
+- **Run** `run-20260916-233813-e647cb` · seed `0`
+- **Generated** 2026-09-16T23:38:34+00:00
 - **Backend** `local-subprocess` — isolation: **NONE**
 
 Edits generated against the sample project, not against the rule list, and
@@ -62,7 +62,7 @@ the exercise: a concrete, reproducible gap in the current rule set.
 | `net-obfuscated` | network | obfuscated import | caught | planted | **BLOCK** | `net.egress`, `code.dangerous_construct` | detected |
 | `net-dormant` | network | dead code | caught | planted | **FLAG** | `code.dangerous_construct` | detected |
 | `benign-scary-names` | benign | clean | caught | benign | **PASS** | — | clean pass |
-| `oracle-skip` | oracle | skip not remove | caught | planted | **BLOCK** | `tests.oracle_weakened` | detected |
+| `oracle-skip` | oracle | skip not remove | caught | planted | **FLAG** | `tests.oracle_weakened` | detected |
 
 ## Reproducing
 
