@@ -35,6 +35,7 @@ from ais.models import (
     Stage,
 )
 from ais.review.base import Reviewer, ReviewPresentation
+from ais.safety import refusal_reason
 from ais.review.cli import ReviewAborted
 from ais.sandbox import build_bundle, select_backend
 from ais.sandbox.base import SandboxBackend
@@ -77,9 +78,13 @@ class Pipeline:
         reviewer: Reviewer,
         backend: SandboxBackend | None = None,
         audit: AuditLog | None = None,
+        allow_uncontained: bool = False,
     ) -> None:
         self.settings = settings
         self.reviewer = reviewer
+        #: Run destructive edits even without an isolation boundary. Off by
+        #: default: the local backend executes them for real.
+        self.allow_uncontained = allow_uncontained
         self.isolation_warning: str | None = None
         if backend is None:
             backend, self.isolation_warning = select_backend(settings)
@@ -166,6 +171,25 @@ class Pipeline:
         started = time.monotonic()
         audit = self.audit
         audit.record(run_id, Stage.REQUEST_RECEIVED, "editor", request.redacted(), request.request_id)
+
+        # Match the request's risk against the containment actually available,
+        # before a sandbox exists. Not a detection, and never reported as one.
+        if not self.allow_uncontained:
+            refusal = refusal_reason(request, isolated=self.backend.isolated)
+            if refusal:
+                audit.record(
+                    run_id,
+                    Stage.PLAN_REJECTED,
+                    "safety",
+                    {"refused": True, "reason": refusal},
+                    request.request_id,
+                )
+                return PipelineRecord(
+                    request=request,
+                    outcome=Outcome.ERROR,
+                    error=refusal,
+                    total_seconds=round(time.monotonic() - started, 3),
+                )
 
         # Same starting content for every request, on a branch of its own.
         branch = self.mediator.begin_request(request.request_id)

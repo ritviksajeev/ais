@@ -3,7 +3,7 @@
 **A sandboxed, execution-verified mediation layer for AI file-editing agents.**
 
 [![tests](https://github.com/ritviksajeev/ais/actions/workflows/ci.yml/badge.svg)](https://github.com/ritviksajeev/ais/actions/workflows/ci.yml)
-![version](https://img.shields.io/badge/version-v0.1.1--alpha-a78bfa)
+![version](https://img.shields.io/badge/version-v0.1.2--alpha-a78bfa)
 ![python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![platform](https://img.shields.io/badge/host-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)
 ![license](https://img.shields.io/badge/license-MIT-green)
@@ -111,6 +111,15 @@ that matters, behaves identically everywhere.
 Without a Docker daemon, `--backend local` runs the same pipeline as ordinary
 subprocesses. **That is not an isolation boundary** — see
 [Backends](#backends-and-the-isolation-boundary).
+
+Because it is not, the pipeline **refuses to run a destructive edit on it**.
+Scenarios 05, 06 and 09 delete files, open sockets and pipe a remote script into
+a shell; without a container they do all of that to the machine you are sitting
+at. `~/.ssh/known_hosts` in scenario 05 is a real path with a real file behind
+it. Those three are refused with an explanation, the other seven run normally,
+and `--allow-uncontained` overrides the refusal if you genuinely mean it.
+`--eval` needs real isolation for the same reason: detection numbers from a
+backend that contains nothing do not mean what the table says.
 
 Run the project's own test suite with `python -m pytest` (no Docker needed).
 
@@ -315,8 +324,9 @@ interface, DNS failing with `gaierror`, the host project not present on disk,
 and a 400 MB allocation against a 256 MB cap dying at exit 137.
 
 **`--backend local` is not a boundary.** It runs the bundle as an ordinary
-subprocess with POSIX rlimits so the pipeline, the rules and the evaluation can
-be exercised on a machine without Docker. A process there can still reach the
+subprocess with POSIX rlimits — and on Windows without even those, since rlimits
+do not exist there — so the pipeline, the rules and the evaluation can be
+exercised on a machine without Docker. A process there can still reach the
 real filesystem and the real network. AiS does not paper over the difference:
 results carry `isolated=False`, a standing `sandbox.not_isolated` caveat is
 attached, the CLI prints a warning, and `EVAL.md` is stamped. Under that

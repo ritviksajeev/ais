@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING
 
 from ais import patchkit
 from ais.models import Anomaly, Severity, TraceEvent
+from ais.sandbox import procutil
 from ais.verifier import static_scan
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -535,8 +536,9 @@ class NotIsolated(Rule):
             self.finding(
                 Severity.MEDIUM,
                 f"This edit ran under the {ctx.result.backend!r} backend, which is not a "
-                f"security boundary. Anything the code did, it really did. Re-run with "
-                f"Docker available before trusting a PASS from this run.",
+                f"security boundary: {procutil.describe_limits()}. Anything the code did, "
+                f"it really did. Re-run with Docker available before trusting a PASS from "
+                f"this run.",
                 advisory=True,
             )
         ]

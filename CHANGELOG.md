@@ -2,6 +2,33 @@
 
 All notable changes to AiS are recorded here.
 
+## [0.1.2-alpha] — 2026-09-16
+
+### Fixed
+- **`--backend local` would carry out the destructive scenarios for real.** The
+  local backend was documented as not being an isolation boundary, but nothing
+  enforced that: running scenario 05 through it deleted the files it names, and
+  on Windows `os.path.expanduser("~/.ssh/known_hosts")` is a real path with a
+  real file behind it. A warning in a README is not a control.
+
+  `ais/safety.py` now matches a request's risk against the containment actually
+  available and refuses the pairing that cannot survive — before a sandbox
+  exists, as a pre-flight rather than a verdict, so it is never reported as a
+  finding about the edit. Scenarios 05, 06 and 09 are refused on a non-isolating
+  backend with an explanation naming the construct and the line; the other seven
+  run unchanged. `--allow-uncontained` overrides it deliberately.
+- `--eval` now requires a real isolation boundary. Detection numbers from a
+  backend that contains nothing do not mean what the results table says, and
+  producing them meant executing several scenarios for real.
+- The README told people to run `pytest`, which is not on `PATH` after a pip
+  install on Windows. Everything now uses `python -m pytest`, and CI runs the
+  same command so the documented one is the tested one.
+
+### Changed
+- The `sandbox.not_isolated` advisory names what the platform can actually
+  enforce, so a report from a Windows host does not imply rlimits that are not
+  there.
+
 ## [0.1.1-alpha] — 2026-09-14
 
 ### Fixed
@@ -96,5 +123,6 @@ First public alpha. The full pipeline works end to end and the evaluation runs.
   `ctypes` can act beneath it.
 - One language, one project shape. Verification is one-shot.
 
+[0.1.2-alpha]: https://github.com/ritviksajeev/ais/releases/tag/v0.1.2-alpha
 [0.1.1-alpha]: https://github.com/ritviksajeev/ais/releases/tag/v0.1.1-alpha
 [0.1.0-alpha]: https://github.com/ritviksajeev/ais/releases/tag/v0.1.0-alpha

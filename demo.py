@@ -88,6 +88,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         help="override the sandbox memory ceiling, in MB",
     )
+    parser.add_argument(
+        "--allow-uncontained",
+        action="store_true",
+        help="run destructive edits even without an isolation boundary. The local "
+        "backend executes them for real -- deleting real files, opening real sockets",
+    )
     parser.add_argument("--rules", action="store_true", help="list the rule set and exit")
     parser.add_argument("--audit", action="store_true", help="show the audit log and exit")
     parser.add_argument("--log", action="store_true", help="show the mediated git log and exit")
@@ -144,9 +150,24 @@ def run_pipeline(settings: Settings, arguments: argparse.Namespace) -> int:
     reviewer = AutoReviewer() if non_interactive else CliReviewer(console)
 
     try:
-        pipeline = Pipeline(settings, reviewer)
+        pipeline = Pipeline(settings, reviewer, allow_uncontained=arguments.allow_uncontained)
     except SandboxUnavailable as exc:
         console.print(Text(f"error: {exc}", style="bold red"))
+        return 3
+
+    if arguments.eval and not pipeline.backend.isolated and not arguments.allow_uncontained:
+        console.print()
+        console.print(
+            Text(
+                "error: --eval needs a real isolation boundary.\n"
+                "  Detection numbers from a backend that cannot contain anything do not "
+                "mean what the table says they mean, and several scenarios would execute "
+                "for real on this machine.\n"
+                "  Start Docker and re-run, or pass --allow-uncontained to override.",
+                style="bold red",
+            )
+        )
+        pipeline.close()
         return 3
 
     _print_header(pipeline, len(requests))
@@ -207,7 +228,7 @@ def _print_summary(summary: RunSummary) -> None:
         table.add_row(
             record.request.request_id,
             Text(verdict, style=style),
-            ", ".join(record.report.rule_ids) if record.report else (record.error or "—"),
+            ", ".join(record.report.rule_ids) if record.report else _short(record.error),
             Text(record.outcome.value, style=outcome_style),
             (record.commit_sha or "")[:12],
         )
@@ -218,10 +239,24 @@ def _print_summary(summary: RunSummary) -> None:
         f"  {len(summary.approved)} approved · {len(summary.rejected)} rejected · "
         f"{len(summary.errored)} errored     audit run id: {summary.run_id}"
     )
+
+    # A refusal is several lines of explanation; the table column is not the
+    # place for it, but dropping it would leave the user with only "errored".
+    for record in summary.errored:
+        if record.error:
+            console.print()
+            console.print(Text(record.error, style="yellow"))
     if summary.aborted:
         console.print(
             Text(f"  run stopped early: {summary.abort_reason}", style="yellow")
         )
+
+
+def _short(error: str | None) -> str:
+    """The first line of an error, for a table cell."""
+    if not error:
+        return "—"
+    return error.strip().splitlines()[0]
 
 
 def _print_evaluation(results: Evaluation) -> None:
