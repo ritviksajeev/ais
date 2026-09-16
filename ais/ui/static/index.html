@@ -3,68 +3,64 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AiS — review</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 28'%3E%3Cpath d='M12 1 2 5v9c0 6.1 4.2 11.3 10 12.9 5.8-1.6 10-6.8 10-12.9V5L12 1Z' fill='none' stroke='%234da3ff' stroke-width='2'/%3E%3C/svg%3E">
+<title>AiS</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 28'%3E%3Cpath d='M12 1 2 5v9c0 6.1 4.2 11.3 10 12.9 5.8-1.6 10-6.8 10-12.9V5L12 1Z' fill='none' stroke='%23a78bfa' stroke-width='2'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/app.css?t={{TOKEN}}">
 </head>
 <body>
-<header class="topbar">
-  <div class="brand">
-    <svg class="mark" viewBox="0 0 24 28" aria-hidden="true">
-      <path d="M12 1 2 5v9c0 6.1 4.2 11.3 10 12.9 5.8-1.6 10-6.8 10-12.9V5L12 1Z"/>
-    </svg>
-    <div>
-      <div class="name">AiS</div>
-      <div class="tag">Agent-in-Sandbox</div>
+
+<!-- the site's background: grid, vignette, grain -->
+<div class="bg-layer" aria-hidden="true">
+  <div class="bg-grid"></div>
+  <div class="bg-vignette"></div>
+  <div class="bg-noise"></div>
+</div>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a class="nav-brand" href="#">
+      <svg class="mark" viewBox="0 0 24 28" aria-hidden="true">
+        <path d="M12 1 2 5v9c0 6.1 4.2 11.3 10 12.9 5.8-1.6 10-6.8 10-12.9V5L12 1Z"/>
+      </svg>
+      <span>Ai<span class="accent">S</span></span>
+    </a>
+    <div class="nav-right">
+      <button type="button" class="nav-link" id="how-btn">How it works</button>
+      <span class="nav-chip" id="chip-backend">starting</span>
     </div>
   </div>
-  <div class="facts">
-    <span class="pill" id="pill-backend">connecting</span>
-    <span class="fact" id="fact-project"></span>
-  </div>
-</header>
+</nav>
 
-<main class="layout">
-  <!-- The pipeline, as a thing you can watch happen. -->
-  <aside class="rail" aria-label="Pipeline stages">
-    <h2 class="rail-title">What AiS does</h2>
-    <p class="rail-lede">Every proposed edit walks these seven steps. Nothing touches
-      a real file until the last one.</p>
-    <ol class="steps" id="steps"></ol>
-    <div class="rail-foot">
-      <div class="chain" id="chain">audit chain · <span id="chain-count">0</span> events</div>
-    </div>
-  </aside>
+<!-- seven dots, the whole pipeline; the detail lives behind "How it works" -->
+<div class="track" id="track" aria-label="Pipeline progress"></div>
 
-  <section class="stage" id="stage">
-    <div class="status" id="status">
-      <div class="spinner" id="spinner"></div>
-      <div>
-        <div class="status-line" id="status-line">Starting up</div>
-        <div class="status-sub" id="status-sub"></div>
-      </div>
-    </div>
+<main class="stage">
 
-    <!-- Filled in when a request is waiting for a human. -->
-    <article class="review" id="review" hidden></article>
-
-    <!-- The live event stream, so the run is never a black box. -->
-    <section class="feed-wrap" id="feed-wrap">
-      <h2 class="section-title">Live activity</h2>
-      <ul class="feed" id="feed"></ul>
-    </section>
-
-    <section class="results" id="results" hidden>
-      <h2 class="section-title">Run summary</h2>
-      <div id="results-body"></div>
-      <div class="finish" id="finish" hidden>
-        <p class="note">Everything above is also in the audit log:
-          <span class="rule">python demo.py --audit</span></p>
-        <button type="button" id="close-btn">Done — close AiS</button>
-      </div>
-    </section>
+  <!-- between requests -->
+  <section class="waiting" id="waiting">
+    <div class="pulse"></div>
+    <p class="waiting-line" id="waiting-line">Starting up</p>
+    <p class="waiting-sub" id="waiting-sub"></p>
   </section>
+
+  <!-- one request, awaiting a human -->
+  <article class="request" id="request" hidden></article>
+
+  <!-- after the run -->
+  <section class="final" id="final" hidden></section>
+
 </main>
+
+<!-- the seven steps, on demand rather than in your face -->
+<div class="sheet" id="sheet" hidden>
+  <div class="sheet-scrim" id="sheet-scrim"></div>
+  <div class="sheet-body">
+    <button class="sheet-close" id="sheet-close" type="button" aria-label="Close">&times;</button>
+    <p class="eyebrow">How it works</p>
+    <h2 class="sheet-title">Seven steps<br>before anything is written</h2>
+    <ol class="sheet-steps" id="sheet-steps"></ol>
+  </div>
+</div>
 
 <script src="/static/app.js?t={{TOKEN}}"></script>
 </body>

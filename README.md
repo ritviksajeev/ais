@@ -142,19 +142,34 @@ python demo.py --ui              # opens a browser
 python demo.py --ui --no-browser # prints the URL instead
 ```
 
-It exists because the terminal shows you the evidence but not the *mechanism*.
-The page has a rail down the left naming each of the seven steps in plain
-English and lighting them as they happen, a live feed of what each component
-just did and why, and then the request itself: the diff, the findings with their
-evidence, what the tests did, and the operations the edit performed while it ran
-— network calls and writes outside the sandbox marked as such. Approve and
-reject are the same two choices the CLI offers, with the same consequences.
+It exists because the terminal shows you the evidence but not the *mechanism*,
+and because the evidence itself is more than most reviews need.
+
+The page answers one question at a time. When a request arrives you see what the
+edit is, whether something is wrong with it **in one plain-English sentence**,
+and two buttons — "This edit opened a network connection and read a file outside
+its sandbox", not three finding cards with rule ids. Everything behind that
+sentence is one click away and none of it is open by default: the findings with
+their evidence, the diff, what the tests did, the operations the code performed,
+and which files were copied into the sandbox. A reviewer who wants the trace can
+always have it; a reviewer who does not should not have to scroll past it to
+reach a decision.
+
+The seven pipeline steps show as seven dots in the header, with the full
+explanation behind "How it works" rather than occupying a column.
+
+Approve and Reject are deliberately the same visual weight. Styling approve as
+the primary call to action would make approving the path of least resistance,
+which is the habit this whole tool argues against.
 
 Deliberate constraints:
 
-- **Standard library only.** No framework, no build step, no `npm install`. AiS
-  already asks you to install Docker; asking for a toolchain to see what it does
-  would defeat the point.
+- **Standard library only, and no outbound request of any kind.** No framework,
+  no build step, no CDN — not even for fonts. AiS already asks you to install
+  Docker; and a review surface running next to the agent it is reviewing should
+  not be phoning anywhere. It works offline. The visual language is the one from
+  [evzero.org](https://evzero.org/ais), with system faces standing in for the
+  webfonts.
 - **Loopback only, with a per-run token.** The page approves writes to real
   files, so it binds `127.0.0.1` and never `0.0.0.0` — and "localhost" still
   means every process on the machine, including whatever agent is being
@@ -521,7 +536,7 @@ ais/                         (repository root)
 ├── sandbox_image/Dockerfile the sandbox image
 ├── sample_project/          the codebase under edit (+ 73 of its own tests)
 ├── scenarios/               scenarios.yaml, payloads/, build_payloads.py
-└── tests/                   295 tests for AiS itself
+└── tests/                   307 tests for AiS itself
 ```
 
 Runtime state lives in `.ais_run/` and is git-ignored: the seeded project, the

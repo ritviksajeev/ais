@@ -25,6 +25,22 @@ All notable changes to AiS are recorded here.
   event channel. A listener that raises is swallowed — a display problem must
   never become an audit problem.
 
+### Changed
+- **The review UI answers one question at a time.** The first version put
+  everything on screen at once — a seven-step rail, a live event feed, and six
+  expanded panels — which is a lot to read before deciding anything. A request
+  now shows what the edit is, one plain-English sentence for whether something
+  is wrong with it, and two buttons; the findings, diff, test results, execution
+  trace and sandbox contents sit behind collapsed drawers. Nothing was removed.
+- `ais/ui/plain.py` renders the Verifier's findings into that sentence. It is a
+  lead, not a substitute: a rule with no phrase falls back to its title rather
+  than being dropped, and a test asserts every rule in the catalogue has one.
+- The UI now uses the evzero.org design language — near-black grounds, a single
+  purple, sharp radii, mono uppercase labels — and makes no outbound request,
+  fonts included.
+- Approve and Reject are the same visual weight. Styling approve as the primary
+  action would make approving the path of least resistance.
+
 ### Fixed
 - The mediated repository translated line endings on Windows. `.ais_run/project`
   is its own `git init` repo with no `.gitattributes`, so git's default

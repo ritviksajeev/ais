@@ -30,6 +30,7 @@ from ais.mediator import Mediator
 from ais.models import Decision, ExecutionReport, Stage, Verdict
 from ais.review.base import ReviewPresentation
 from ais.review.cli import ReviewAborted
+from ais.ui import plain
 from ais.ui.reviewer import WebReviewer, pack_presentation
 from ais.ui.server import ReviewServer
 from ais.ui.state import STAGE_COPY, UiState, describe_stage
@@ -345,3 +346,68 @@ def _until(condition, timeout: float = 5.0) -> None:
             return
         time.sleep(0.01)
     raise AssertionError("condition did not become true in time")
+
+
+class TestPlainEnglish:
+    """The one-sentence lead a reviewer reads before any of the evidence."""
+
+    def test_every_rule_has_a_plain_english_form(self):
+        # A rule with no phrase would be summarised by falling back to its
+        # title, which reads badly. More importantly, a reviewer must never see
+        # a summary that quietly omits a finding.
+        from ais.verifier import rule_catalogue
+
+        known = set(plain.CONSEQUENCE) | set(plain.CAVEAT)
+        missing = [rule["id"] for rule in rule_catalogue() if rule["id"] not in known]
+        assert not missing, f"rules with no plain-English form: {missing}"
+
+    def test_no_findings_reads_as_reassurance_not_silence(self):
+        assert "nothing outside its sandbox" in plain.summarise([])
+
+    @pytest.mark.parametrize(
+        "rule_ids,expected",
+        [
+            (["net.egress"], "This edit opened a network connection."),
+            (
+                ["net.egress", "fs.escape_read"],
+                "This edit opened a network connection and read a file outside its sandbox.",
+            ),
+            (
+                ["net.egress", "fs.escape_read", "proc.spawn"],
+                "This edit opened a network connection, read a file outside its sandbox, "
+                "and started another program.",
+            ),
+        ],
+    )
+    def test_findings_become_one_sentence(self, rule_ids, expected):
+        assert plain.summarise([{"rule_id": r} for r in rule_ids]) == expected
+
+    def test_a_repeated_rule_is_said_once(self):
+        sentence = plain.summarise([{"rule_id": "net.egress"}, {"rule_id": "net.egress"}])
+        assert sentence.count("network connection") == 1
+
+    def test_an_unmapped_rule_still_appears(self):
+        # Falling back is ugly; dropping the finding silently would be dangerous.
+        sentence = plain.summarise([{"rule_id": "brand.new", "title": "Something odd"}])
+        assert "Something odd" in sentence
+
+    def test_advisories_are_separate_sentences_about_the_run(self):
+        lines = plain.caveats([{"rule_id": "sandbox.not_isolated"}])
+        assert lines and "no real sandbox" in lines[0]
+
+    def test_every_verdict_has_a_lead(self):
+        for verdict in Verdict:
+            assert plain.lead(verdict.value) != verdict.value
+
+    def test_the_packed_request_carries_the_lead_and_the_sentence(self, presentation):
+        packed = pack_presentation(presentation)
+        assert packed["lead"]
+        assert packed["summary"]
+        assert "diff_stats" in packed
+
+    def test_diff_stats_count_changed_lines_not_headers(self, presentation):
+        packed = pack_presentation(presentation)
+        # The file gained one line and lost none; the ---/+++ headers must not
+        # be counted as a removal and an addition.
+        assert packed["diff_stats"]["added"] >= 1
+        assert packed["diff_stats"]["removed"] == 0

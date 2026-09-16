@@ -15,6 +15,7 @@ from typing import Any
 from ais.models import Decision
 from ais.review.base import Reviewer, ReviewPresentation
 from ais.review.cli import ReviewAborted
+from ais.ui import plain
 from ais.ui.state import UiState
 
 #: Trace events are shown in full up to this many, then summarised. A runaway
@@ -71,6 +72,8 @@ def pack_presentation(
     sandbox = report.sandbox
 
     trace = [_event(e) for e in sandbox.trace[:MAX_TRACE_SHOWN]]
+    findings = [a.to_dict() for a in report.findings]
+    advisories = [a.to_dict() for a in report.caveats]
     return {
         "request_id": request.request_id,
         "index": index,
@@ -83,8 +86,13 @@ def pack_presentation(
         "isolation_warning": presentation.isolation_warning,
         "verdict": report.verdict.value,
         "headline": report.headline(),
-        "findings": [a.to_dict() for a in report.findings],
-        "caveats": [a.to_dict() for a in report.caveats],
+        # The lead: the answer to "is this safe", before any of the evidence.
+        "lead": plain.lead(report.verdict.value),
+        "summary": plain.summarise(findings),
+        "caveat_lines": plain.caveats(advisories),
+        "findings": findings,
+        "caveats": advisories,
+        "diff_stats": _diff_stats(presentation.diff),
         "execution": {
             "backend": sandbox.backend,
             "isolated": sandbox.isolated,
@@ -106,6 +114,17 @@ def pack_presentation(
         "trace": trace,
         "trace_total": len(sandbox.trace),
     }
+
+
+def _diff_stats(diff: str) -> dict[str, int]:
+    """Added and removed line counts, for the collapsed summary line."""
+    added = removed = 0
+    for line in diff.split("\n"):
+        if line.startswith("+") and not line.startswith("+++"):
+            added += 1
+        elif line.startswith("-") and not line.startswith("---"):
+            removed += 1
+    return {"added": added, "removed": removed}
 
 
 def _tests(summary) -> dict[str, Any] | None:
