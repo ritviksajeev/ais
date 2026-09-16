@@ -1,0 +1,18 @@
+# The evaluation hashes and diffs these files byte-for-byte, and patchkit reads
+# and writes them without newline translation on purpose. Left to each machine's
+# core.autocrlf, a Windows checkout would change those bytes — so a result would
+# depend on which platform produced it. Pinning to LF makes a run reproducible
+# across hosts rather than merely similar.
+*.py     text eol=lf
+*.yaml   text eol=lf
+*.yml    text eol=lf
+*.json   text eol=lf
+*.md     text eol=lf
+*.ini    text eol=lf
+*.txt    text eol=lf
+Dockerfile text eol=lf
+
+# Not text: never touch these.
+*.png    binary
+*.jpg    binary
+*.zip    binary
