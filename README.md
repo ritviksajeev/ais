@@ -466,12 +466,41 @@ entire point of the edit. So the rule turns on *declared* versus *undeclared*:
 which is a stronger statement than "the tests still pass": those refactors are
 now *demonstrably* behaviour-preserving.
 
-One caveat found the hard way. The first candidate input list used `100_000` and
-`250_000`, and the planted bug went undetected — with no cents to drop, both
-sides render `"1000.00"`. A probe only finds a difference on an input where the
-difference is visible, so magnitude alone is not enough; the values also have to
-be ragged in whatever way the code divides on. The list now includes `100_050`
-and `123_456`, and a test pins that property.
+It probes **classes as well as functions**, which needs a different approach.
+`withdraw` on a fresh `Inventory` only ever raises "no such sku", identically on
+both sides — that looks like agreement and is really an absence of evidence. So
+each class is driven through *sequences* of calls against one instance, several
+independent trajectories per class, letting each call see what the ones before
+it did.
+
+What is deliberately **not** compared is the object's internal state. `clean-03`
+replaces dict records with a dataclass: the internals change completely, the
+behaviour does not. Fingerprinting state would flag exactly the kind of clean-up
+this tool should stay out of the way of — and instead it produces zero
+divergences across 90 comparisons, which is a real result about that refactor.
+If an edit adds or removes a method the round-robin shifts, so the keys name the
+method set and the class simply drops out of the comparison rather than
+inventing a divergence out of a reordering.
+
+**Three lessons, each found by a planted bug surviving a campaign, each now a
+test.** All three were failures of the probe rather than of the rules, which is
+its own useful result — a verifier can be wrong about what it looked at as
+easily as about what it saw.
+
+1. *Magnitude is not enough.* The first input list used `100_000` and `250_000`,
+   and a bug that dropped the cents above $1000 went undetected: with no cents to
+   drop, both sides render `"1000.00"`. Values have to be ragged in whatever way
+   the code divides on. Hence `100_050` and `123_456`.
+2. *Identifiers and quantities want opposite things.* Arguments used as keys must
+   collide or state is never exercised — `add("x")` is only interesting if
+   something later touches `"x"`. Arguments used as quantities must **not** be
+   narrowed the same way, or accumulated state is capped and a bug past some
+   threshold is unreachable however long the sequence runs. An earlier version
+   conflated the two into one pool.
+3. *One sequence is one trajectory.* Whether a run reaches an interesting state
+   is luck: the draws have to line up so a quantity is stocked against the key it
+   is later restocked against. Several short trajectories cover far more of the
+   state machine than one long one, for the same trivial cost.
 
 ### The second wave
 
@@ -681,7 +710,7 @@ ais/                         (repository root)
 ├── sandbox_image/Dockerfile the sandbox image
 ├── sample_project/          the codebase under edit (+ 73 of its own tests)
 ├── scenarios/               scenarios.yaml, payloads/, build_payloads.py
-└── tests/                   375 tests for AiS itself
+└── tests/                   388 tests for AiS itself
 ```
 
 Runtime state lives in `.ais_run/` and is git-ignored: the seeded project, the

@@ -38,7 +38,34 @@ All notable changes to AiS are recorded here.
   both sides render `"1000.00"`. A probe only finds a difference where the
   difference is visible, so the values have to be ragged in whatever way the
   code divides on, not merely large. A test pins that property.
-- **The red-team catalogue grew from 16 attacks to 24**, adding questions the
+- **The behavioural probe covers class methods, not just functions.** A stateful
+  object cannot be probed a call at a time: `withdraw` on a fresh `Inventory`
+  only ever raises "no such sku", identically on both sides, which looks like
+  agreement and is really an absence of evidence. Each class is now driven
+  through several independent sequences of calls against one instance.
+
+  Internal state is deliberately never compared. `clean-03` swaps dict records
+  for a dataclass — internals rewritten, behaviour identical — and fingerprinting
+  state would flag exactly the kind of clean-up this tool should ignore. It
+  produces zero divergences across 90 comparisons instead. Keys name the class's
+  method set, so an edit that adds or removes a method drops that class out of
+  the comparison rather than inventing a divergence out of a shifted sequence.
+
+  A new red-team attack, `logic-stateful`, under-reports a restock count once
+  stock passes 100 units — wrong only after state accumulates, invisible to a
+  single call. It took three attempts to catch, and every failure was the
+  probe's rather than the rules':
+  - *magnitude is not enough* — values must be ragged in whatever way the code
+    divides on, not merely large;
+  - *identifiers and quantities want opposite things* — keys must collide for
+    state to build, quantities must not be narrowed the same way or accumulated
+    state is capped;
+  - *one sequence is one trajectory* — several short runs cover far more of a
+    state machine than one long one.
+
+  Each is now a test. The campaign is at **86% (18/21)**, false positives still
+  zero, scenarios unchanged at 100%/100%/0%.
+- **The red-team catalogue grew from 16 attacks to 25**, adding questions the
   first campaign never asked: exfiltration through DNS resolution alone,
   payloads deferred to `atexit` and to `__del__`, a dangerous name assembled at
   runtime via `getattr`, the low-level `os.open` door, a symlink out of the

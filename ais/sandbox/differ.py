@@ -51,6 +51,39 @@ CANDIDATES: dict[str, list] = {
     "str": ["", "a", "hello world", "  padded  ", "Ünïcode", "a-b-c", "The Quick Brown Fox"],
 }
 
+#: The pool for method sequences, which has to satisfy two different needs that
+#: an earlier version conflated into one.
+#:
+#: Arguments used as *identifiers* have to collide, or state is never exercised:
+#: draw a fresh random sku for every call and ``add("x")`` is never followed by
+#: ``withdraw("x")``, so the probe looks busy while proving nothing. Strings are
+#: therefore drawn from a deliberately tiny set.
+#:
+#: Arguments used as *quantities* have the opposite requirement. Narrowing those
+#: too caps how much state can ever accumulate, and a bug that only appears past
+#: some magnitude is unreachable however long the sequence runs -- which is
+#: exactly how a planted off-by-one above 100 units survived a campaign. Numbers
+#: keep a wider spread for that reason.
+METHOD_CANDIDATES: dict[str, list] = {
+    "int": [0, 1, 2, 5, 100, 250, 1000],
+    "float": [0.0, 0.5, 10.0, 99.9],
+    "bool": [True, False],
+    "str": ["a", "b", "widget"],
+}
+
+#: How many calls to make against one instance. Long enough for state to build
+#: up and for a later call to depend on an earlier one.
+SEQUENCE_STEPS = 18
+
+#: How many independent sequences to run per class, each from a fresh instance.
+#:
+#: One sequence is a single trajectory through a state machine, and which states
+#: it reaches is luck: the draws have to line up so that a quantity is stocked
+#: against the same key it is later restocked against. A handful of trajectories
+#: covers far more of the machine for the same trivial cost, which is the same
+#: reason a test suite runs many cases rather than one longer one.
+SEQUENCE_RUNS = 5
+
 #: Longest repr recorded for a single value. A divergence is about *whether*
 #: two runs differ, so an enormous return value only needs to differ detectably.
 MAX_REPR = 300
@@ -71,8 +104,9 @@ def _type_name(annotation: object) -> str | None:
     return text if text in CANDIDATES else None
 
 
-def _argument_space(function) -> list[list] | None:
+def _argument_space(function, table: dict[str, list] | None = None) -> list[list] | None:
     """Candidate values for each parameter, or None if the signature is not probeable."""
+    table = CANDIDATES if table is None else table
     try:
         signature = inspect.signature(function)
     except (TypeError, ValueError):
@@ -82,9 +116,11 @@ def _argument_space(function) -> list[list] | None:
     for parameter in signature.parameters.values():
         if parameter.kind in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD):
             return None  # *args/**kwargs: no honest way to enumerate
+        if parameter.name == "self":
+            continue
         name = _type_name(parameter.annotation)
         if name is not None:
-            space.append(list(CANDIDATES[name]))
+            space.append(list(table[name]))
         elif parameter.default is not inspect.Parameter.empty:
             space.append([parameter.default])  # unannotated but defaulted: use it
         else:
@@ -131,6 +167,70 @@ def _outcome(function, args: tuple) -> str:
     return text if len(text) <= MAX_REPR else text[: MAX_REPR - 3] + "..."
 
 
+def _own_methods(cls) -> list[str]:
+    """Public methods this class defines itself, in a stable order."""
+    names = []
+    for name, member in sorted(vars(cls).items()):
+        if name.startswith("_") or not inspect.isfunction(member):
+            continue
+        names.append(name)
+    return names
+
+
+def probe_class(cls, rng: random.Random) -> dict[str, str]:
+    """Drive one instance through a sequence of calls and record every answer.
+
+    Stateful objects cannot be probed a call at a time. ``withdraw`` on a fresh
+    ``Inventory`` only ever raises "no such sku", identically on both sides,
+    which looks like agreement and is really an absence of evidence. So this
+    builds one instance and walks it through a sequence, letting each call see
+    what the ones before it did.
+
+    What is *not* compared is the object's internal state. A refactor that
+    replaces dict records with a dataclass rewrites that state completely while
+    changing no behaviour -- fingerprinting it would flag exactly the kind of
+    clean-up this tool should stay out of the way of. The contract under test is
+    what the methods return and what they raise, which is the contract callers
+    actually have.
+    """
+    methods = _own_methods(cls)
+    if not methods:
+        return {}
+
+    constructor = _argument_space(cls.__init__, METHOD_CANDIDATES)
+    if constructor is None:
+        return {}
+    try:
+        cls(*[values[0] for values in constructor])
+    except Exception:  # noqa: BLE001 -- a class we cannot build is one we skip
+        return {}
+
+    # If the edit adds or removes a method the round-robin shifts, and step 3
+    # on one side would be compared against a differently-reached step 3 on the
+    # other. Naming the method set in the key means those keys simply stop
+    # matching: the class drops out of the comparison instead of inventing a
+    # divergence out of a reordering.
+    shape = ",".join(methods)
+    records: dict[str, str] = {}
+    for run in range(SEQUENCE_RUNS):
+        try:
+            instance = cls(*[values[0] for values in constructor])
+        except Exception:  # noqa: BLE001
+            break
+        for step in range(SEQUENCE_STEPS):
+            name = methods[step % len(methods)]
+            bound = getattr(instance, name, None)
+            if bound is None:
+                continue
+            space = _argument_space(bound, METHOD_CANDIDATES)
+            if space is None:
+                continue
+            args = tuple(values[rng.randrange(len(values))] for values in space)
+            key = f"{cls.__name__}[{shape}]@{run}#{step:02d}.{name}{args!r}"
+            records[key] = _outcome(bound, args)
+    return records
+
+
 def probe_module(module, limit: int, rng: random.Random) -> dict[str, str]:
     """Outcome per ``function(args)`` for every public function we can call."""
     records: dict[str, str] = {}
@@ -146,6 +246,13 @@ def probe_module(module, limit: int, rng: random.Random) -> dict[str, str]:
             continue
         for args in _combinations(space, limit, rng):
             records[f"{name}{args!r}"] = _outcome(function, args)
+
+    for name, cls in sorted(vars(module).items()):
+        if name.startswith("_") or not inspect.isclass(cls):
+            continue
+        if getattr(cls, "__module__", None) != module.__name__:
+            continue
+        records.update(probe_class(cls, rng))
     return records
 
 
