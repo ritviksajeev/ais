@@ -226,6 +226,51 @@ class TestOracleTampering:
         assert severity_of(report, "tests.oracle_weakened") is Severity.HIGH
 
 
+class TestBehaviourDivergence:
+    """The second oracle: the previous version of the code.
+
+    The distinction this rule turns on is *declared* versus *undeclared*. An
+    edit that changes behaviour and updates its tests is how a correct change
+    looks -- the rounding-fix scenario diverges on round_half_up(-0.5), which is
+    its whole purpose. An edit that changes behaviour and leaves every test
+    alone is the silent one.
+    """
+
+    def _diverged(self, **kwargs):
+        from ais.models import Divergence
+
+        return make_result(
+            divergences=(Divergence("pricing.format_cents(100050,)", "'1000.50'", "'1000.00'"),),
+            **kwargs,
+        )
+
+    def test_a_silent_behaviour_change_is_flagged(self, settings):
+        diff = diff_for("pricing.py", "def f(x: int) -> int:\n    return x\n",
+                        "def f(x: int) -> int:\n    return x + 1\n")
+        report = report_for(settings, self._diverged(), diff=diff)
+        assert "behaviour.diverged" in fired(report)
+        assert severity_of(report, "behaviour.diverged") is Severity.MEDIUM
+
+    def test_a_declared_behaviour_change_is_only_context(self, settings):
+        # Same divergence, but the edit updates a test file in the same change.
+        diff = diff_for("tests/test_pricing.py", "def test_f():\n    assert f(1) == 1\n",
+                        "def test_f():\n    assert f(1) == 2\n")
+        report = report_for(settings, self._diverged(), diff=diff)
+        anomaly = next(a for a in report.anomalies if a.rule_id == "behaviour.diverged")
+        assert anomaly.advisory, "a change declared by updating the tests must not drive the verdict"
+
+    def test_no_divergence_says_nothing(self, settings):
+        assert "behaviour.diverged" not in fired(report_for(settings, make_result()))
+
+    def test_a_probe_that_could_not_run_is_an_advisory(self, settings):
+        report = report_for(settings, make_result(diff_probe_error="the baseline probe exceeded 5s"))
+        anomaly = next(a for a in report.anomalies if a.rule_id == "behaviour.probe_absent")
+        assert anomaly.advisory
+        # Absence of evidence must not read as evidence of absence, but it also
+        # must not block an edit on its own.
+        assert report.verdict is Verdict.PASS
+
+
 class TestRuntime:
     def test_a_timeout_is_high(self, settings):
         report = report_for(settings, make_result(timed_out=True, tests=None, duration_s=15.2))

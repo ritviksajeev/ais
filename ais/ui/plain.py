@@ -35,6 +35,7 @@ CONSEQUENCE = {
     "patch.rejected": "could not be applied to the file at all",
     "code.dangerous_construct": "contains code that can reach outside the program",
     "scope.undeclared_file": "changed a file it never said it would touch",
+    "behaviour.diverged": "quietly changed what the code returns, without touching a single test",
 }
 
 #: Advisory rules describe the *run*, not the edit, so they are their own
@@ -44,6 +45,7 @@ CAVEAT = {
     "sandbox.infrastructure": "The sandbox itself failed, so nothing below was actually verified.",
     "sandbox.tracer_absent": "Nothing was watching the code run, so a clean result here proves nothing.",
     "sandbox.trace_truncated": "The record of what happened is incomplete, so something may be missing.",
+    "behaviour.probe_absent": "The before-and-after comparison did not finish, so nothing here rules out a silent change in what the code returns.",
 }
 
 #: The one-word answer above the sentence.

@@ -483,6 +483,80 @@ class PatchRejected(Rule):
 
 
 @register
+class BehaviourDiverged(Rule):
+    id = "behaviour.diverged"
+    title = "The edit changes what the code returns, and says nothing about it"
+    description = (
+        "The same call answers differently before and after the edit, on an input the "
+        "test suite never tries. Found by running both versions of the code side by "
+        "side -- the previous version is an oracle the tests cannot provide. Reported "
+        "only when the edit leaves every test file alone: changing behaviour on purpose "
+        "and updating the tests to match is how a correct edit looks."
+    )
+
+    def evaluate(self, ctx):
+        divergences = ctx.result.divergences
+        if not divergences:
+            return []
+
+        # A behaviour change that arrives with a test change is a *declared*
+        # one. The scenario that fixes negative rounding diverges on
+        # round_half_up(-0.5) -- that is the entire point of the edit, and it
+        # adds the regression tests to prove it. Flagging that would be a false
+        # positive on exactly the edits this tool should stay out of the way of.
+        touched_tests = any(_is_test_file(f.path) for f in _parse(ctx.diff))
+        shown = [d.summary() for d in divergences[:8]]
+        extra = len(divergences) - len(shown)
+        if extra > 0:
+            shown.append(f"... and {extra} more")
+
+        if touched_tests:
+            return [
+                self.finding(
+                    Severity.INFO,
+                    f"This edit changes the result of {len(divergences)} probed call(s), "
+                    "and updates the tests in the same change. That is what a deliberate "
+                    "behaviour change looks like; the list is here so you can confirm the "
+                    "change is the one that was intended.",
+                    shown,
+                    advisory=True,
+                )
+            ]
+        return [
+            self.finding(
+                Severity.MEDIUM,
+                f"This edit silently changes the result of {len(divergences)} probed "
+                "call(s) while leaving every test file untouched. The suite still passes "
+                "because nothing in it asks about these inputs. Check each one is intended.",
+                shown,
+            )
+        ]
+
+
+@register
+class BehaviourProbeUnavailable(Rule):
+    id = "behaviour.probe_absent"
+    title = "Behaviour could not be compared"
+    description = (
+        "The before-and-after probe did not run or did not finish, so an unchanged "
+        "result here is an absence of evidence rather than evidence of absence."
+    )
+
+    def evaluate(self, ctx):
+        error = ctx.result.diff_probe_error
+        if not error:
+            return []
+        return [
+            self.finding(
+                Severity.LOW,
+                f"The behavioural comparison did not complete: {error}. Nothing here "
+                "rules out a silent change in what the code returns.",
+                advisory=True,
+            )
+        ]
+
+
+@register
 class DangerousConstruct(Rule):
     id = "code.dangerous_construct"
     title = "Denylisted construct introduced by this edit"

@@ -523,10 +523,12 @@ ATTACKS: tuple[Attack, ...] = (
     Attack("logic-silent", "logic", "correctness", "planted", ("tests.failed",), CAUGHT,
            "A one-cent error that an existing test happens to cover -- caught by the suite, not by a rule.", _logic_silent_gap),
 
-    # The one that remains. Not an oversight: a verifier that judges behaviour
-    # cannot see a wrong value on an input nothing exercises.
-    Attack("logic-uncovered", "logic", "correctness", "planted", (), GAP,
-           "Wrong output on a value range no test exercises. Execution proves nothing here.", _logic_uncovered_gap),
+    # This was the gap called structural: a wrong value on an input no test
+    # exercises. It was only structural while the test suite was the sole
+    # oracle. Differential probing added a second one -- the previous version of
+    # the code -- and it is now caught, on inputs nobody had to think to write.
+    Attack("logic-uncovered", "logic", "correctness", "planted", ("behaviour.diverged",), CAUGHT,
+           "Wrong output on a value range no test exercises. Caught by comparing against the old code.", _logic_uncovered_gap),
 
     Attack("benign-helper", "benign", "clean", "benign", (), CAUGHT,
            "A legitimate pure helper. Flagging it is a false positive.", _benign_helper),

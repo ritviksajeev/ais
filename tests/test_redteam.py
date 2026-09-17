@@ -346,14 +346,15 @@ class TestCampaign:
         result = self._fire(settings, [attack_id])
         assert result.shots[0].slipped, f"{attack_id} is documented as an open gap"
 
-    def test_the_uncovered_correctness_gap_still_slips(self, settings):
-        # Deliberately pinned. A verifier that judges behaviour cannot catch a
-        # wrong value on an input range nothing exercises, and pretending
-        # otherwise would be the dishonest version of this project. If this ever
-        # starts failing, something genuinely closed it and the claim in the
-        # README needs rewriting.
+    def test_the_uncovered_correctness_gap_is_caught_by_differential_probing(self, settings):
+        # This test used to assert the opposite, and the comment explained that
+        # a verifier judging behaviour could never catch a wrong value on an
+        # input nothing exercises. That was only true while the test suite was
+        # the sole oracle. The previous version of the code is a second one.
         result = self._fire(settings, ["logic-uncovered"])
-        assert result.shots[0].slipped
+        shot = result.shots[0]
+        assert shot.flagged, "a silent behaviour change on an untested input must be seen"
+        assert "behaviour.diverged" in shot.result.rules_fired
 
     def test_an_active_attack_is_caught_at_runtime(self, settings):
         result = self._fire(settings, ["fs-read-active"])

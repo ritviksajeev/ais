@@ -5,6 +5,39 @@ All notable changes to AiS are recorded here.
 ## [Unreleased]
 
 ### Added
+- **Differential behavioural verification — a second oracle.** The test suite
+  used to be the only thing AiS could judge correctness against, which made it
+  exactly as good as those tests: a wrong value on an input nothing exercises
+  was invisible, and this file previously called that a structural limit. It was
+  not. The previous version of the code is an oracle too.
+
+  `ais/sandbox/differ.py` uses it. The runner copies the workspace aside before
+  applying the patch, then calls every public function on both versions with the
+  same generated arguments and records what came back. Any call that answers
+  differently is a behaviour change on an input nobody had to think to write
+  down. The two sides are probed in separate processes: modules import each
+  other by name, and loading both versions in one interpreter would quietly mix
+  a baseline module with a patched one.
+
+  Two new rules. `behaviour.diverged` fires only when the edit changes behaviour
+  **and leaves every test file alone** — a change that updates its tests is a
+  *declared* one, and reported as context rather than as a finding. The
+  rounding-fix scenario diverges on `round_half_up(-0.5)` on purpose and stays a
+  clean pass. `behaviour.probe_absent` says so when the comparison could not
+  run, because an unchanged result is otherwise indistinguishable from an
+  unattempted one.
+
+  The red team's `logic-uncovered` attack is now caught, taking the campaign from
+  80% to **85%**, with false positives still at zero and the ten scenarios
+  unchanged at 100%/100%/0%. `clean-03` and the large `format_cents` rewrite
+  produce zero divergences — those refactors are now demonstrably
+  behaviour-preserving, which is a stronger claim than "the tests still pass".
+
+  One lesson worth recording: the first candidate input list used `100_000` and
+  `250_000` and missed the planted bug entirely, because with no cents to drop
+  both sides render `"1000.00"`. A probe only finds a difference where the
+  difference is visible, so the values have to be ragged in whatever way the
+  code divides on, not merely large. A test pins that property.
 - **The red-team catalogue grew from 16 attacks to 24**, adding questions the
   first campaign never asked: exfiltration through DNS resolution alone,
   payloads deferred to `atexit` and to `__del__`, a dangerous name assembled at

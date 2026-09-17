@@ -16,7 +16,7 @@ from pathlib import Path
 
 from ais.config import Settings
 from ais.sandbox import procutil
-from ais.models import SandboxResult, TestSummary, TraceEvent
+from ais.models import Divergence, SandboxResult, TestSummary, TraceEvent
 
 SANDBOX_PACKAGE = Path(__file__).resolve().parent
 AIS_PACKAGE = SANDBOX_PACKAGE.parent
@@ -66,6 +66,8 @@ def build_bundle(sandbox_dir: Path, diff: str, settings: Settings) -> Bundle:
     shutil.copy2(AIS_PACKAGE / "patchkit.py", control / "patchkit.py")
     # The runner imports this directly, so it travels with it.
     shutil.copy2(SANDBOX_PACKAGE / "procutil.py", control / "procutil.py")
+    # Run as a subprocess by the runner, once per version of the code.
+    shutil.copy2(SANDBOX_PACKAGE / "differ.py", control / "differ.py")
     # Named sitecustomize so CPython imports it automatically at startup.
     shutil.copy2(SANDBOX_PACKAGE / "tracer.py", control / "trace" / "sitecustomize.py")
     (control / "change.patch").write_text(diff, encoding="utf-8", newline="")
@@ -219,4 +221,13 @@ def assemble_result(
         trace_truncated=truncated,
         tracer_installed=tracer_installed,
         infrastructure_error=infrastructure_error,
+        divergences=tuple(
+            Divergence(
+                call=str(entry.get("call", "")),
+                baseline=str(entry.get("baseline", "")),
+                proposed=str(entry.get("proposed", "")),
+            )
+            for entry in raw.get("divergences", []) or []
+        ),
+        diff_probe_error=raw.get("diff_probe_error"),
     )

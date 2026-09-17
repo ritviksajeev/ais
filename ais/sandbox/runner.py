@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -61,18 +62,113 @@ def main() -> int:
         "cpu_time_s": None,
         "tests": None,
         "runner_error": None,
+        "divergences": [],
+        "diff_probe_error": None,
     }
 
     try:
+        # Snapshot before patching: the unedited copy is the second oracle, and
+        # it only exists for this one moment.
+        baseline = _snapshot(workspace, root / "baseline")
         _apply_patch(control / "change.patch", workspace, report)
         if report["patch_applied"]:
             _run_tests(manifest, root, workspace, control, out, report)
+            _probe_behaviour(manifest, control, workspace, baseline, out, report)
     except Exception as exc:  # noqa: BLE001 -- the runner must always report
         report["runner_error"] = f"{type(exc).__name__}: {exc}"
     finally:
         (out / "result.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
 
     return 0
+
+
+def _snapshot(workspace: Path, destination: Path) -> Path:
+    """Copy the whole workspace aside, unpatched.
+
+    The whole tree rather than just the edited files: the modules in a project
+    import each other by name, so a baseline missing its neighbours would import
+    the *patched* neighbour and stop being a baseline.
+    """
+    if destination.exists():
+        procutil.rmtree(destination)
+    shutil.copytree(workspace, destination)
+    return destination
+
+
+def _probe_behaviour(
+    manifest: dict, control: Path, workspace: Path, baseline: Path, out: Path, report: dict
+) -> None:
+    """Compare what the edited modules *do*, before and after.
+
+    The test suite is one oracle and the previous version of the code is
+    another. This asks the second one: call every public function on both sides
+    with the same arguments and write down where the answers differ.
+
+    Deliberately untraced. The tracer already watched the test run; running the
+    probe under it would record the same module-scope work twice and report the
+    probe's own calls as though the edit had made them.
+    """
+    if report["timed_out"]:
+        return  # the run already failed to finish; nothing to compare
+    targets = [p for p in _patched_files(control / "change.patch") if _is_probeable(p)]
+    if not targets:
+        return
+
+    limits = manifest["limits"]
+    budget = max(5.0, float(limits["inner_timeout_s"]) / 3.0)
+    records = {}
+    for label, source in (("baseline", baseline), ("proposed", workspace)):
+        destination = out / f"probe-{label}.json"
+        try:
+            subprocess.run(
+                [sys.executable, str(control / "differ.py"),
+                 "--root", str(source), "--targets", ",".join(targets),
+                 "--out", str(destination), "--seed", "0"],
+                cwd=str(source), timeout=budget, capture_output=True,
+                env=_untraced_environment(), **procutil.spawn_kwargs(),
+            )
+            records[label] = json.loads(destination.read_text(encoding="utf-8"))
+        except subprocess.TimeoutExpired:
+            report["diff_probe_error"] = f"the {label} probe exceeded {budget:.0f}s"
+            return
+        except Exception as exc:  # noqa: BLE001 -- a probe failure is not a run failure
+            report["diff_probe_error"] = f"{type(exc).__name__}: {exc}"
+            return
+
+    before = records["baseline"]["functions"]
+    after = records["proposed"]["functions"]
+    report["divergences"] = [
+        {"call": call, "baseline": before[call], "proposed": after[call]}
+        for call in sorted(before)
+        if call in after and before[call] != after[call]
+    ]
+
+
+def _untraced_environment() -> dict[str, str]:
+    environment = dict(os.environ)
+    # Drop anything that would pull sitecustomize in; the probe is measurement,
+    # not observation.
+    for key in ("PYTHONPATH", "AIS_TRACE_PATH", "AIS_WORKSPACE", "AIS_WRITE_ALLOWLIST"):
+        environment.pop(key, None)
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    return environment
+
+
+def _patched_files(patch_path: Path) -> list[str]:
+    if not patch_path.exists():
+        return []
+    try:
+        return [f.path for f in patchkit.parse_patch(patchkit.read_text_exact(str(patch_path)))]
+    except patchkit.PatchError:
+        return []
+
+
+def _is_probeable(path: str) -> bool:
+    """Modules worth probing: this project's own code, not its tests."""
+    name = path.rsplit("/", 1)[-1]
+    if not name.endswith(".py"):
+        return False
+    return not (name.startswith("test_") or name.endswith("_test.py") or name == "conftest.py")
 
 
 def _apply_patch(patch_path: Path, workspace: Path, report: dict) -> None:

@@ -195,6 +195,18 @@ class TestSummary:
 
 
 @dataclass(frozen=True)
+class Divergence:
+    """One call that behaves differently before and after the edit."""
+
+    call: str
+    baseline: str
+    proposed: str
+
+    def summary(self) -> str:
+        return f"{self.call}: {self.baseline} -> {self.proposed}"
+
+
+@dataclass(frozen=True)
 class SandboxResult:
     """Everything observed during one sandboxed execution."""
 
@@ -215,6 +227,11 @@ class SandboxResult:
     max_rss_mb: float | None = None
     cpu_time_s: float | None = None
     trace_truncated: bool = False
+    #: Calls whose result changed between the baseline and the proposed code.
+    #: Evidence, not a verdict: plenty of edits change behaviour on purpose.
+    divergences: tuple["Divergence", ...] = ()
+    #: Set when the behavioural probe could not run or finish.
+    diff_probe_error: str | None = None
     #: Whether the runtime audit hook confirmed it was installed. False means
     #: no runtime observation happened at all, so an empty trace says nothing.
     tracer_installed: bool = False
