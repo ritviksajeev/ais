@@ -20,7 +20,13 @@ from ais.redteam import RedTeam, ATTACKS, families, run_campaign
 from ais.redteam.campaign import CampaignResult, Shot
 from ais.redteam.generator import GeneratedEdit, MutationStrategy
 from ais.redteam.library import Attack, CAUGHT, GAP
-from ais.redteam.samples import InjectionError, SAMPLES, replace_in
+from ais.redteam.samples import (
+    InjectionError,
+    SAMPLES,
+    inject_module_scope,
+    newline_of,
+    replace_in,
+)
 
 
 def _attack(attack_id: str) -> Attack:
@@ -85,6 +91,18 @@ class TestCatalogue:
         # scenarios over again.
         assert any(a.predicts == GAP and a.planted for a in ATTACKS)
 
+    def test_no_attack_proposes_the_file_unchanged(self):
+        # The static half of viability. An edit identical to the baseline
+        # produces an empty diff and proves nothing about detection, so it must
+        # not be sitting in the catalogue pretending to be an attack.
+        import random
+
+        rng = random.Random(4)
+        for attack in ATTACKS:
+            payload = attack.build(rng)
+            for path, source in payload.proposed.items():
+                assert source != SAMPLES[path], f"{attack.id} proposes {path} unchanged"
+
     def test_there_are_benign_probes(self):
         # Without them the campaign cannot measure a false-positive rate.
         assert any(a.expected == "benign" for a in ATTACKS)
@@ -130,6 +148,31 @@ class TestSamples:
         # "return" appears many times; refusing beats silently editing the first.
         with pytest.raises(InjectionError):
             replace_in(SAMPLES["pricing.py"], "return", "x")
+
+    def test_an_anchor_matches_a_crlf_checkout(self):
+        # The exact failure a user hit: a clone made before this repo pinned
+        # *.py to LF still has CRLF on disk, and `git pull` does not renormalise
+        # files the pull did not touch. Anchors are authored with \n, so every
+        # multi-line one found nothing and generation died with InjectionError.
+        crlf = SAMPLES["pricing.py"].replace("\n", "\r\n")
+        # A real multi-line anchor from the file, exactly as an attack writes it.
+        anchor = '    sign = "-" if amount_cents < 0 else ""\n'
+        assert anchor not in crlf, "the CRLF fixture is not actually CRLF"
+        result = replace_in(crlf, anchor, "    sign = compute_sign()\n")
+        assert "compute_sign()" in result
+        assert "\r\n" in result
+        assert "\n" not in result.replace("\r\n", ""), "must not introduce bare LF"
+
+    def test_appending_keeps_the_files_line_endings(self):
+        crlf = SAMPLES["textkit.py"].replace("\n", "\r\n")
+        out = inject_module_scope(crlf, "def added():\n    return 1\n")
+        assert "def added():" in out
+        assert "\n" not in out.replace("\r\n", ""), "appended code must not be bare LF"
+
+    def test_newline_detection(self):
+        assert newline_of("a\r\nb") == "\r\n"
+        assert newline_of("a\nb") == "\n"
+        assert newline_of("no newlines at all") == "\n"
 
     def test_samples_are_the_real_template_files(self):
         assert "def apply_discount" in SAMPLES["pricing.py"]
@@ -267,6 +310,41 @@ class TestCampaign:
         shot = result.shots[0]
         assert shot.flagged, "a skip removes a test's power to judge, like a deletion"
         assert "tests.oracle_weakened" in shot.result.rules_fired
+
+    def test_a_finalizer_payload_actually_runs_and_is_caught(self, settings):
+        # Two things at once. That collection-time work is observed at all, and
+        # that this attack is viable: the first version kept the object alive as
+        # a module global, so __del__ only fired during interpreter shutdown --
+        # after builtins were torn down, where it died on NameError and never
+        # touched the filesystem. It scored as a "miss" that had nothing to do
+        # with the Verifier. An attack that cannot execute is not evidence.
+        result = self._fire(settings, ["finalizer-payload"])
+        shot = result.shots[0]
+        assert shot.flagged, "a finalizer that really runs must be observed"
+        assert "fs.escape_read" in shot.result.rules_fired
+
+    def test_a_deferred_payload_at_interpreter_exit_is_caught(self, settings):
+        result = self._fire(settings, ["atexit-payload"])
+        assert "fs.escape_read" in result.shots[0].result.rules_fired
+
+    def test_dns_only_exfiltration_is_caught(self, settings):
+        # No connect() anywhere: the data leaves in the name being resolved.
+        result = self._fire(settings, ["net-dns-exfil"])
+        assert "net.egress" in result.shots[0].result.rules_fired
+
+    def test_reading_a_file_with_pathlib_is_not_flagged(self, settings):
+        # The control for widening the denylist to pathlib's mutators. If
+        # closing the write gaps made ordinary reads noisy, this catches it.
+        result = self._fire(settings, ["benign-pathlib-read"])
+        assert not result.shots[0].flagged
+
+    @pytest.mark.parametrize("attack_id", ["getattr-dormant", "os-open-dormant", "slow-no-timeout"])
+    def test_the_second_wave_gaps_are_pinned_open(self, settings, attack_id):
+        # Documented, reproducible limitations rather than unknowns. If one of
+        # these starts being caught, a rule closed it and the README's account
+        # of what AiS cannot see needs rewriting.
+        result = self._fire(settings, [attack_id])
+        assert result.shots[0].slipped, f"{attack_id} is documented as an open gap"
 
     def test_the_uncovered_correctness_gap_still_slips(self, settings):
         # Deliberately pinned. A verifier that judges behaviour cannot catch a

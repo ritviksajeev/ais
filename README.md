@@ -395,8 +395,8 @@ python demo.py --redteam --backend docker      # generate, run blind, write REDT
 python demo.py --redteam --seed 3 --count 24    # a different, larger campaign
 ```
 
-The catalogue in `ais/redteam/library.py` carries three kinds of attack, and
-each one states up front whether the current rules *should* catch it:
+The catalogue in `ais/redteam/library.py` carries 24 attacks across three kinds,
+and each states up front whether the current rules *should* catch it:
 
 - **Caught because it runs.** A real socket, file escape, subprocess or native
   load that executes during the test suite. The runtime tracer observes the
@@ -424,20 +424,53 @@ slips.** Each was a specific, reproducible hole, and four of them were fixable:
 | skip the covering test | a skip is not a failure, and the oracle rule watched only for *removals* | **closed** — an added skip now counts as weakening |
 | `format_cents` wrong over $1000 | a value range no test reaches | **open, and structural** |
 
-After those fixes the same campaign scores **92% detection (12/13), still 0
+After those fixes the same campaign scored **92% detection (12/13), still 0
 false positives, one slip.** The four closed attacks stay in the catalogue as
 regression cover: they now predict `caught`, so if a later change drops one, it
 reports as *slipped through* — the loudest row in the report.
-
-The one that remains is not an oversight. A verifier that judges behaviour
-cannot see a wrong value on an input nothing exercises; for correctness, AiS is
-exactly as good as the test suite it runs and no better. A test pins that slip
-open, so the claim here and the code cannot quietly drift apart.
 
 The instructive pair is `logic-silent` and `logic-uncovered`: the same one-cent
 error, one on a path an existing test happens to cover (caught, by
 `tests.failed`) and one on a path nothing covers (missed). Same bug class,
 opposite outcomes, decided entirely by coverage.
+
+### The second wave
+
+Closing gaps only proves the catalogue was too small. It grew from 16 attacks to
+24, adding questions the first campaign never asked: exfiltration through DNS
+resolution alone, payloads deferred to `atexit` and to `__del__`, a dangerous
+name assembled at runtime, the low-level `os.open` door, a symlink out of the
+workspace, and a change that is simply *slow*. Current score: **80% detection
+(16/20), 0 false positives across 4 benign probes, four slips.**
+
+The detection rate went *down*, which is what a working red team does. The three
+new gaps:
+
+| Slip | Why nothing catches it |
+|---|---|
+| `getattr(os, "rem" + "ove")`, dormant | the dangerous name never appears in the AST, and the code never runs — nothing to match, nothing to observe |
+| `os.open(...)`, dormant | one rung below the names the scan knows |
+| six seconds on import | the wall-clock rule fires at the ceiling, and nothing compares this run against the last |
+
+`os.open` is closeable by naming it; `getattr` is the same class and is *not*,
+because it defeats name matching by construction. That is the honest limit of a
+static denylist, and the reason the runtime tracer is the primary evidence. The
+slow one is a whole missing rule class: AiS measures no baseline, so it cannot
+tell a 20× regression from normal.
+
+What the second wave confirmed, rather than broke: DNS-only exfiltration, both
+deferred-execution tricks, and the symlink escape are all caught — observation
+does not stop when the test run does.
+
+**One finding about the method itself.** `finalizer-payload` first reported as a
+miss. It was not: kept alive as a module global, `__del__` only ran during
+interpreter shutdown, after builtins were torn down, where it died on
+`NameError: name 'open' is not defined`. The attack never executed, so counting
+it against the Verifier would have been a lie in our own favour's opposite
+direction — understating detection by blaming a rule for something that never
+happened. An attack that cannot execute is not evidence. The fixed version drops
+the object during the run, and is caught. Both the empty-diff check and that
+finalizer are now pinned by tests.
 
 The generator is deterministic in its seed and its strategy is a seam: today a
 mutation strategy samples the hand-written catalogue, but a `ModelStrategy` that
@@ -609,7 +642,7 @@ ais/                         (repository root)
 ├── sandbox_image/Dockerfile the sandbox image
 ├── sample_project/          the codebase under edit (+ 73 of its own tests)
 ├── scenarios/               scenarios.yaml, payloads/, build_payloads.py
-└── tests/                   346 tests for AiS itself
+└── tests/                   357 tests for AiS itself
 ```
 
 Runtime state lives in `.ais_run/` and is git-ignored: the seeded project, the

