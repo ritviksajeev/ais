@@ -3,7 +3,7 @@
 **A sandboxed, execution-verified mediation layer for AI file-editing agents.**
 
 [![tests](https://github.com/ritviksajeev/ais/actions/workflows/ci.yml/badge.svg)](https://github.com/ritviksajeev/ais/actions/workflows/ci.yml)
-![version](https://img.shields.io/badge/version-v0.1.3--alpha-a78bfa)
+![version](https://img.shields.io/badge/version-v0.1.4--alpha-a78bfa)
 ![python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![platform](https://img.shields.io/badge/host-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)
 ![license](https://img.shields.io/badge/license-MIT-green)
@@ -395,7 +395,7 @@ python demo.py --redteam --backend docker      # generate, run blind, write REDT
 python demo.py --redteam --seed 3 --count 24    # a different, larger campaign
 ```
 
-The catalogue in `ais/redteam/library.py` carries 24 attacks across three kinds,
+The catalogue in `ais/redteam/library.py` carries 25 attacks across three kinds,
 and each states up front whether the current rules *should* catch it:
 
 - **Caught because it runs.** A real socket, file escape, subprocess or native
@@ -433,6 +433,45 @@ The instructive pair is `logic-silent` and `logic-uncovered`: the same one-cent
 error, one on a path an existing test happens to cover (caught, by
 `tests.failed`) and one on a path nothing covers (missed). Same bug class,
 opposite outcomes, decided entirely by coverage.
+
+### The second wave
+
+Closing gaps only proves the catalogue was too small. It grew from 16 attacks to
+25, adding questions the first campaign never asked: exfiltration through DNS
+resolution alone, payloads deferred to `atexit` and to `__del__`, a dangerous
+name assembled at runtime, the low-level `os.open` door, a symlink out of the
+workspace, and a change that is simply *slow*. That campaign scored **80%
+detection (16/20), 0 false positives across 4 benign probes, four slips** —
+down from 92%.
+
+The detection rate going *down* is what a working red team does. The three new
+gaps it found:
+
+| Slip | Why nothing catches it |
+|---|---|
+| `getattr(os, "rem" + "ove")`, dormant | the dangerous name never appears in the AST, and the code never runs — nothing to match, nothing to observe |
+| `os.open(...)`, dormant | one rung below the names the scan knows |
+| six seconds on import | the wall-clock rule fires at the ceiling, and nothing compares this run against the last |
+
+`os.open` is closeable by naming it; `getattr` is the same class and is *not*,
+because it defeats name matching by construction. That is the honest limit of a
+static denylist, and the reason the runtime tracer is the primary evidence. The
+slow one is a whole missing rule class: AiS measures no baseline, so it cannot
+tell a 20× regression from normal.
+
+What the second wave confirmed, rather than broke: DNS-only exfiltration, both
+deferred-execution tricks, and the symlink escape are all caught — observation
+does not stop when the test run does.
+
+**One finding about the method itself.** `finalizer-payload` first reported as a
+miss. It was not: kept alive as a module global, `__del__` only ran during
+interpreter shutdown, after builtins were torn down, where it died on
+`NameError: name 'open' is not defined`. The attack never executed, so counting
+it against the Verifier would have been a lie in our own favour's opposite
+direction — understating detection by blaming a rule for something that never
+happened. An attack that cannot execute is not evidence. The fixed version drops
+the object during the run, and is caught. Both the empty-diff check and that
+finalizer are now pinned by tests.
 
 ### The correctness gap was not structural after all
 
@@ -502,43 +541,26 @@ easily as about what it saw.
    is later restocked against. Several short trajectories cover far more of the
    state machine than one long one, for the same trivial cost.
 
-### The second wave
 
-Closing gaps only proves the catalogue was too small. It grew from 16 attacks to
-24, adding questions the first campaign never asked: exfiltration through DNS
-resolution alone, payloads deferred to `atexit` and to `__del__`, a dangerous
-name assembled at runtime, the low-level `os.open` door, a symlink out of the
-workspace, and a change that is simply *slow*. Current score: **80% detection
-(16/20), 0 false positives across 4 benign probes, four slips.**
+### Where it stands
 
-The detection rate went *down*, which is what a working red team does. The three
-new gaps:
+Chronologically: 62% on the first campaign, 92% after closing four gaps, 80%
+once the catalogue doubled, and **86% (18/21)** now that behaviour is compared
+against the previous version of the code as well as against the tests. False
+positives have been zero at every step, across four benign probes, and the ten
+fixed scenarios have never moved off 100%/100%/0%.
 
-| Slip | Why nothing catches it |
+Three gaps are open, and they are not the same kind of thing:
+
+| Open gap | What closing it would take |
 |---|---|
-| `getattr(os, "rem" + "ove")`, dormant | the dangerous name never appears in the AST, and the code never runs — nothing to match, nothing to observe |
-| `os.open(...)`, dormant | one rung below the names the scan knows |
-| six seconds on import | the wall-clock rule fires at the ceiling, and nothing compares this run against the last |
+| dormant `os.open(...)` | one more name on the denylist — an afternoon |
+| six seconds on import | a rule that compares a run against a baseline, which AiS has never had |
+| `getattr`-assembled names | nothing, honestly. It defeats name matching by construction |
 
-`os.open` is closeable by naming it; `getattr` is the same class and is *not*,
-because it defeats name matching by construction. That is the honest limit of a
-static denylist, and the reason the runtime tracer is the primary evidence. The
-slow one is a whole missing rule class: AiS measures no baseline, so it cannot
-tell a 20× regression from normal.
-
-What the second wave confirmed, rather than broke: DNS-only exfiltration, both
-deferred-execution tricks, and the symlink escape are all caught — observation
-does not stop when the test run does.
-
-**One finding about the method itself.** `finalizer-payload` first reported as a
-miss. It was not: kept alive as a module global, `__del__` only ran during
-interpreter shutdown, after builtins were torn down, where it died on
-`NameError: name 'open' is not defined`. The attack never executed, so counting
-it against the Verifier would have been a lie in our own favour's opposite
-direction — understating detection by blaming a rule for something that never
-happened. An attack that cannot execute is not evidence. The fixed version drops
-the object during the run, and is caught. Both the empty-diff check and that
-finalizer are now pinned by tests.
+The last one is worth keeping open and citing rather than papering over: it is
+the clearest statement of why a static denylist cannot be the primary evidence,
+and why the runtime tracer is.
 
 The generator is deterministic in its seed and its strategy is a seam: today a
 mutation strategy samples the hand-written catalogue, but a `ModelStrategy` that

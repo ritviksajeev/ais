@@ -1,3 +1,3 @@
 """AiS — a sandboxed, execution-verified mediation layer for AI file-editing agents."""
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"

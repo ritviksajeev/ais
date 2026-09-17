@@ -1,7 +1,7 @@
 # AiS red-team campaign
 
-- **Run** `run-20260917-171741-777339` · seed `0`
-- **Generated** 2026-09-17T17:18:17+00:00
+- **Run** `run-20260917-231128-cae593` · seed `0`
+- **Generated** 2026-09-17T23:12:05+00:00
 - **Backend** `local-subprocess` — isolation: **NONE**
 
 Edits generated against the sample project, not against the rule list, and

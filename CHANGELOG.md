@@ -2,9 +2,31 @@
 
 All notable changes to AiS are recorded here.
 
-## [Unreleased]
+## [0.1.4-alpha] — 2026-09-17
 
 ### Added
+- **The red-team catalogue grew from 16 attacks to 25**, adding questions the
+  first campaign never asked: exfiltration through DNS resolution alone,
+  payloads deferred to `atexit` and to `__del__`, a dangerous name assembled at
+  runtime via `getattr`, the low-level `os.open` door, a symlink out of the
+  workspace, a change that is merely *slow*, and a benign `pathlib` read as the
+  control for having widened the denylist.
+
+  The score went **down**, from 92% to **80% detection (16/20)**, with false
+  positives still at zero across four benign probes. That is what a working red
+  team does. Three new gaps, none of them previously known:
+  - `getattr(os, "rem" + "ove")` in dead code — the dangerous name never appears
+    in the AST and the code never runs, so there is nothing to match and nothing
+    to observe. This is the honest limit of a static denylist, and it is not
+    closeable by naming things.
+  - dormant `os.open(...)` — one rung below the names the scan knows.
+  - six seconds burned on import — the wall-clock rule only fires at the
+    ceiling, and nothing compares a run against the previous one. A whole
+    missing rule class rather than a missing name.
+
+  Confirmed working, rather than broken: DNS-only exfiltration, both
+  deferred-execution tricks and the symlink escape are all caught. Observation
+  does not stop when the test run does.
 - **Differential behavioural verification — a second oracle.** The test suite
   used to be the only thing AiS could judge correctness against, which made it
   exactly as good as those tests: a wrong value on an input nothing exercises
@@ -65,28 +87,6 @@ All notable changes to AiS are recorded here.
 
   Each is now a test. The campaign is at **86% (18/21)**, false positives still
   zero, scenarios unchanged at 100%/100%/0%.
-- **The red-team catalogue grew from 16 attacks to 25**, adding questions the
-  first campaign never asked: exfiltration through DNS resolution alone,
-  payloads deferred to `atexit` and to `__del__`, a dangerous name assembled at
-  runtime via `getattr`, the low-level `os.open` door, a symlink out of the
-  workspace, a change that is merely *slow*, and a benign `pathlib` read as the
-  control for having widened the denylist.
-
-  The score went **down**, from 92% to **80% detection (16/20)**, with false
-  positives still at zero across four benign probes. That is what a working red
-  team does. Three new gaps, none of them previously known:
-  - `getattr(os, "rem" + "ove")` in dead code — the dangerous name never appears
-    in the AST and the code never runs, so there is nothing to match and nothing
-    to observe. This is the honest limit of a static denylist, and it is not
-    closeable by naming things.
-  - dormant `os.open(...)` — one rung below the names the scan knows.
-  - six seconds burned on import — the wall-clock rule only fires at the
-    ceiling, and nothing compares a run against the previous one. A whole
-    missing rule class rather than a missing name.
-
-  Confirmed working, rather than broken: DNS-only exfiltration, both
-  deferred-execution tricks and the symlink escape are all caught. Observation
-  does not stop when the test run does.
 
 ### Fixed
 - **Generation crashed on a CRLF checkout.** Attacks are authored with `\n`
@@ -330,6 +330,7 @@ First public alpha. The full pipeline works end to end and the evaluation runs.
   `ctypes` can act beneath it.
 - One language, one project shape. Verification is one-shot.
 
+[0.1.4-alpha]: https://github.com/ritviksajeev/ais/releases/tag/v0.1.4-alpha
 [0.1.3-alpha]: https://github.com/ritviksajeev/ais/releases/tag/v0.1.3-alpha
 [0.1.2-alpha]: https://github.com/ritviksajeev/ais/releases/tag/v0.1.2-alpha
 [0.1.1-alpha]: https://github.com/ritviksajeev/ais/releases/tag/v0.1.1-alpha
