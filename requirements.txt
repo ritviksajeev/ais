@@ -10,3 +10,8 @@ GitPython>=3.1,<4       # commit an approved diff so it is attributable and reve
 PyYAML>=6.0,<7          # the scripted editor's scenario file
 rich>=13.0              # the review CLI: diff and execution report side by side
 pytest>=8.0             # runs the AiS test suite, and the sample project's own
+
+# Optional. Needed only to RECORD live model proposals (`--llm --record`).
+# Replaying committed cassettes (`--llm`) needs none of this -- not even the
+# import -- which is the whole point of the record/replay split.
+# anthropic>=0.40        # the live editor agent (python demo.py --llm --record)

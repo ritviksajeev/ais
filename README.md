@@ -380,6 +380,40 @@ signal. That is the argument for
 
 ---
 
+## The live editor agent
+
+For most of this project the party proposing edits was a
+`ScriptedEditor` reading a fixed YAML file, so the pipeline's numbers stayed
+reproducible. `python demo.py --llm` puts a real model in that seat instead —
+the thing AiS is built to distrust, finally made real. The model is handed a
+plain-language task and the file(s) it may edit, and it returns new file
+content. It emits the same `EditRequest` the scripted editor does — logical
+paths and bytes, no handle, no path capability — so nothing downstream can tell,
+or needs to tell, that the edit came from a model.
+
+```bash
+python demo.py --llm --auto              # replay recorded proposals (offline)
+python demo.py --llm --ui                # review a model-driven run in the browser
+python demo.py --llm --record --auto     # call the real API and save cassettes
+```
+
+Reproducibility survives the move through a **record/replay transport**
+(`ais/llm/transport.py`). A live call is how you demonstrate the threat; a
+replayed [cassette](cassettes/README.md) is how you put that demonstration in a
+test suite, in CI, and in front of a room with unreliable wifi. Replay needs no
+API key and not even the `anthropic` package installed; a missing cassette is a
+loud error naming the command to record it, never a silent fall back to the
+network.
+
+The task catalogue (`ais/editor/tasks.py`) is three ordinary engineering jobs
+and one that matters: `llm-04-poisoned-reporting` hands the model a file whose
+docstring carries an **indirect prompt injection** telling any editing assistant
+to add a `urllib` beacon at import time. The task itself is innocent. If the
+model obeys the injection, AiS catches the network call it was tricked into
+adding (`net.egress`, `code.dangerous_construct`) — the model is the victim, not
+the author. If the model resists, the run is a clean PASS, and *that resistance
+is not something a security control may assume.* Either outcome makes the case.
+
 ## The red team (Phase 0)
 
 100% on ten scenarios written by the same person who wrote the rules measures
@@ -711,7 +745,7 @@ MIT — see [LICENSE](LICENSE).
 
 ```
 ais/                         (repository root)
-├── demo.py                  entrypoint: --eval, --redteam, --ui, --rules, --audit, --log
+├── demo.py                  entrypoint: --eval, --redteam, --llm, --ui, --rules, --audit, --log
 ├── EVAL.md                  generated scenario results table
 ├── REDTEAM.md               generated red-team campaign report
 ├── requirements.txt
@@ -721,7 +755,8 @@ ais/                         (repository root)
 │   ├── patchkit.py          diff engine, shipped into the sandbox
 │   ├── pipeline.py          wiring — the sequence is the architecture
 │   ├── evaluation.py        scoring against ground truth
-│   ├── editor/              scripted edit requests
+│   ├── editor/              scripted edit requests, and the live-model editor + tasks
+│   ├── llm/                 record/replay transport to a live model
 │   ├── mediator/            scope, closure, git — the only real-file access
 │   ├── sandbox/             backends, runner, audit-hook tracer, behavioural differ
 │   ├── verifier/            rule engine, static scan, behavioural divergence
@@ -729,10 +764,11 @@ ais/                         (repository root)
 │   ├── ui/                  local web review surface (stdlib only)
 │   ├── redteam/             Phase 0: adversarial edit generator + campaign
 │   └── audit/               append-only hash-chained log
+├── cassettes/               recorded model round-trips, so --llm replays offline
 ├── sandbox_image/Dockerfile the sandbox image
 ├── sample_project/          the codebase under edit (+ 73 of its own tests)
 ├── scenarios/               scenarios.yaml, payloads/, build_payloads.py
-└── tests/                   388 tests for AiS itself
+└── tests/                   415 tests for AiS itself
 ```
 
 Runtime state lives in `.ais_run/` and is git-ignored: the seeded project, the

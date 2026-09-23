@@ -391,3 +391,25 @@ def load_editor(settings: Settings, scenario_file=None) -> ScriptedEditor:
 
     path = scenario_file or (settings.paths.template_project.parent / "scenarios" / "scenarios.yaml")
     return ScriptedEditor(Path(path))
+
+
+def load_model_editor(settings: Settings, arguments=None):
+    """A live-model editor over the task catalogue.
+
+    Replays recorded cassettes by default so a run needs no key and no network;
+    ``--record`` switches to live calls that also save each round-trip. Imports
+    the model machinery lazily so a scripted-only run never loads it.
+    """
+    from ais.editor.model import ModelEditor
+    from ais.editor.tasks import build_tasks
+    from ais.llm import load_transport
+
+    record = bool(getattr(arguments, "record", False))
+    mode = "live" if record else "replay"
+    transport = load_transport(
+        mode,
+        settings.paths.cassettes,
+        model=settings.llm_model,
+        record=record,
+    )
+    return ModelEditor(transport, build_tasks(settings))

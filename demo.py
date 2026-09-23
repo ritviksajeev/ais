@@ -6,6 +6,8 @@
     python demo.py --auto          non-interactive; follows the Verifier
     python demo.py --eval          run everything and write the results table
     python demo.py --only plant-06 run one scenario (substring match)
+    python demo.py --llm           propose edits with a live model (replays cassettes)
+    python demo.py --llm --record  record fresh cassettes against the real API
     python demo.py --rules         list the Verifier's rule set
     python demo.py --audit         show the audit log and verify its hash chain
     python demo.py --log           git log of the project under mediation
@@ -33,7 +35,7 @@ from ais.config import Settings  # noqa: E402
 from ais.evaluation import Evaluation, evaluate, to_markdown  # noqa: E402
 from ais.mediator import gitops  # noqa: E402
 from ais.models import Outcome  # noqa: E402
-from ais.pipeline import Pipeline, RunSummary, load_editor  # noqa: E402
+from ais.pipeline import Pipeline, RunSummary, load_editor, load_model_editor  # noqa: E402
 from ais.review import AutoReviewer, CliReviewer  # noqa: E402
 from ais.sandbox import SandboxUnavailable  # noqa: E402
 from ais.verifier import rule_catalogue  # noqa: E402
@@ -130,6 +132,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path(__file__).resolve().parent / "REDTEAM.md",
         help="with --redteam, where to write the campaign report",
     )
+    parser.add_argument(
+        "--llm",
+        action="store_true",
+        help="propose edits with a live model instead of the scripted scenarios. "
+        "Runs from recorded cassettes by default (offline, deterministic)",
+    )
+    parser.add_argument(
+        "--record",
+        action="store_true",
+        help="with --llm, call the real API and save each round-trip as a cassette. "
+        "Needs ANTHROPIC_API_KEY or an `ant auth login` profile",
+    )
     parser.add_argument("--rules", action="store_true", help="list the rule set and exit")
     parser.add_argument("--audit", action="store_true", help="show the audit log and exit")
     parser.add_argument("--log", action="store_true", help="show the mediated git log and exit")
@@ -144,6 +158,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     arguments = build_parser().parse_args(argv)
     settings = _settings_from(arguments)
+
+    if arguments.record and not arguments.llm:
+        console.print(Text("error: --record only applies to --llm runs.", style="bold red"))
+        return 2
 
     if arguments.rules:
         return show_rules()
@@ -177,8 +195,8 @@ def _settings_from(arguments: argparse.Namespace) -> Settings:
 
 
 def run_pipeline(settings: Settings, arguments: argparse.Namespace) -> int:
-    editor = load_editor(settings)
     try:
+        editor = load_model_editor(settings, arguments) if arguments.llm else load_editor(settings)
         requests = editor.select(arguments.only)
     except Exception as exc:  # editor errors are user errors, not stack traces
         console.print(Text(f"error: {exc}", style="bold red"))
