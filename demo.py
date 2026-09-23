@@ -202,6 +202,9 @@ def run_pipeline(settings: Settings, arguments: argparse.Namespace) -> int:
         console.print(Text(f"error: {exc}", style="bold red"))
         return 2
 
+    if arguments.llm:
+        _print_editor(settings, arguments, requests)
+
     if arguments.ui:
         if arguments.auto or arguments.eval:
             console.print(
@@ -303,6 +306,40 @@ def run_in_browser(settings: Settings, arguments: argparse.Namespace, requests) 
         return 2
     _print_summary(summary)
     return code
+
+
+def _print_editor(settings: Settings, arguments: argparse.Namespace, requests) -> None:
+    """Show what the model was asked and what it decided, before it is checked.
+
+    This is the whole reason the editor exists as its own visible stage: the
+    model is the untrusted actor, and the point AiS makes is that you cannot
+    trust its own account of what it did. So we print its self-reported summary
+    here, plainly -- and then let the sandbox report what the code *actually*
+    does. When those two disagree, that gap is the lesson.
+    """
+    mode = "live API (recording)" if arguments.record else "replaying recorded answers (offline)"
+    console.print()
+    console.rule("[bold]the editor — a real model proposing edits", style="magenta")
+    console.print(f"  model     {settings.llm_model}")
+    console.print(f"  mode      {mode}")
+    console.print(
+        Text(
+            "  the model is the untrusted party here. What it says it did is below;\n"
+            "  what it actually did is what the sandbox reports next.",
+            style="dim",
+        )
+    )
+
+    table = Table(header_style="dim", expand=True, show_lines=False)
+    table.add_column("task", style="cyan", no_wrap=True)
+    table.add_column("what the model was asked")
+    table.add_column("what the model says it did", style="italic")
+
+    for request in requests:
+        table.add_row(request.request_id, request.title, request.rationale or "—")
+
+    console.print()
+    console.print(table)
 
 
 def _print_header(pipeline: Pipeline, count: int) -> None:
