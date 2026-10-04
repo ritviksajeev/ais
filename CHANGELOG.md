@@ -14,17 +14,31 @@ All notable changes to AiS are recorded here.
   none of which touch the network.
 
 ### Changed
-- **The review UI is now an office "security check" screen.** Dark, minimal and
-  in the evzero.org design language, written for the person who would actually
-  be asked to approve an AI's change. One green/amber/red banner, the
-  AI's own account of what it did, a six-line checklist in everyday words, and
-  two buttons; everything technical is behind "Show technical details". Progress
-  is four plain steps instead of seven dots, and "How it works" explains the
-  mechanism through an anti-cheat analogy. Only the safe button is ever
-  highlighted, so approving never becomes the default.
+- **The review UI is now an office "security check" screen.** Written for the
+  person who would actually be asked to approve an AI's change: the change's
+  name as a headline with the answer ("Looks safe.", "Did something risky.")
+  as its coloured second line, the AI's own account of what it did, a six-line
+  checklist in everyday words, and two buttons; everything technical is behind
+  "Details". Progress is four plain steps instead of seven dots, and "How it
+  works" explains the mechanism through an anti-cheat analogy. Only the safe
+  button is ever highlighted, so approving never becomes the default.
+- **The UI is built from evzero.org's own components**: the hairline grid and
+  purple glow, the indexed nav (the four steps), the "● (01) (label)" section
+  bar, Unbounded headlines, the AiS page's terminal card for the checklist,
+  and its purple and ghost buttons. Inter, Unbounded and JetBrains Mono ship
+  with AiS (SIL OFL, 130 KB) instead of loading from a font CDN, so the page
+  still makes no request that leaves the machine; a test holds it to that.
 - Plain-English summaries say "safe test area" instead of "sandbox".
 
 ### Fixed
+- **The Docker sandbox failed every run with `PermissionError: [Errno 13]
+  Permission denied: '/baseline'`.** The runner snapshotted the unedited code
+  to the bundle root, which under Docker is the container's `/`, owned by root,
+  while the runner runs as an unprivileged user. Every change, safe or not, came
+  back blocked as a sandbox failure. The snapshot now lives under `/ais`, which
+  the sandbox user owns; no image rebuild is needed. Verified against a real
+  Docker daemon (3 safe changes pass, all 7 planted ones are caught for their
+  own reasons), and a new test catches it without Docker.
 - **A failed sandbox no longer looks like a risky change.** When the sealed test
   area itself fails, the review page used to show the same red "did something
   risky" banner as a real catch, with the actual error hidden in the technical

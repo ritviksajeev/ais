@@ -146,13 +146,15 @@ python demo.py --ui --no-browser # prints the URL instead
 It exists because the terminal shows you the evidence but not the *mechanism*,
 and because the evidence itself is more than most reviews need. It is written
 for someone who has never heard of a sandbox or a diff — the office worker who
-would actually be asked to approve an AI assistant's change. It is dark and
-minimal, in the [evzero.org](https://evzero.org) design language: hairline
-borders, one purple accent, and colour kept for meaning only.
+would actually be asked to approve an AI assistant's change. It is built from
+[evzero.org](https://evzero.org)'s own components: the hairline grid and purple
+glow, the indexed nav, the "● (01) (label)" section bar, wide Unbounded
+headlines, and the AiS page's terminal card, with colour kept for meaning only.
 
 When a change arrives, the page answers three questions in order: **what is the
 AI trying to change** (title, file, and the AI's own account of what it did),
-**is it safe** (one green, amber or red banner with a plain-English sentence —
+**is it safe** (the headline's coloured second line — *Looks safe.*, *Did
+something risky.* — then one plain-English sentence —
 "This edit opened a network connection and read a file outside its safe test
 area", not three finding cards with rule ids), and **what should I do**. A short
 checklist shows why, in everyday words: *didn't try to connect to the internet*,
@@ -162,15 +164,15 @@ on. Every rule maps to a line; a rule added later without one is listed under
 
 Everything technical — the findings with their evidence, the exact change, what
 the tests did, every operation the code performed, which files were copied — is
-behind **Show technical details**, closed by default. An IT or security reviewer
+behind **Details**, closed by default. An IT or security reviewer
 loses nothing; an office worker does not have to scroll past it.
 
-Progress shows as four plain steps (*AI suggests a change → tested in a safe
-copy → checked for risky behaviour → you decide*), with the full mechanism
+Progress shows as four plain steps in the nav (*suggested → tested → checked →
+you decide*), with the full mechanism
 behind "How it works", explained through an anti-cheat analogy.
 
 If the sealed test area itself fails, the page does not call the change risky
-or safe: it says **"Couldn't test this change"**, marks every checklist line as
+or safe: it says **"Couldn't be tested."**, marks every checklist line as
 not checked, shows the reason for whoever has to fix it, and recommends not
 allowing. A guess dressed up as a finding would be worse than no answer.
 
@@ -182,9 +184,10 @@ whole tool argues against.
 Deliberate constraints:
 
 - **Standard library only, and no outbound request of any kind.** No framework,
-  no build step, no CDN — not even for fonts. AiS already asks you to install
-  Docker; and a review surface running next to the agent it is reviewing should
-  not be phoning anywhere. It works offline, using the system's own fonts.
+  no build step, no CDN — not even for fonts: Inter, Unbounded and JetBrains
+  Mono ship in `ais/ui/static/fonts` (SIL OFL, 130 KB). AiS already asks you to
+  install Docker; and a review surface running next to the agent it is
+  reviewing should not be phoning anywhere. It works offline.
 - **Loopback only, with a per-run token.** The page approves writes to real
   files, so it binds `127.0.0.1` and never `0.0.0.0` — and "localhost" still
   means every process on the machine, including whatever agent is being
@@ -799,7 +802,7 @@ ais/                         (repository root)
 ├── sandbox_image/Dockerfile the sandbox image
 ├── sample_project/          the codebase under edit (+ 73 of its own tests)
 ├── scenarios/               scenarios.yaml, payloads/, build_payloads.py
-└── tests/                   433 tests for AiS itself
+└── tests/                   437 tests for AiS itself
 ```
 
 Runtime state lives in `.ais_run/` and is git-ignored: the seeded project, the

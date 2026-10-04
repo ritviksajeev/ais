@@ -160,6 +160,45 @@ class TestSandboxBundle:
         for name in ("runner.py", "patchkit.py", "procutil.py"):
             assert (bundle.control / name).is_file(), f"{name} missing from the bundle"
 
+    def test_the_runner_writes_nothing_beside_the_bundle(self, settings, tmp_path):
+        """Under Docker the bundle root is the container's "/", owned by root.
+
+        The sandbox user can write only inside workspace, ais and out, so a
+        runner that creates anything else at the root fails every run there.
+
+        The runner is started directly rather than through the local backend:
+        what is under test is where it writes, and the backend's process cap
+        is per user on macOS, where it cannot start the test run at all.
+        """
+        import json
+        import os
+
+        from ais.sandbox import procutil
+        from ais.sandbox.base import build_bundle
+
+        root = tmp_path / "sandbox"
+        workspace = root / "workspace"
+        workspace.mkdir(parents=True)
+        # newline="\n": on Windows, text mode would write CRLF, and the patch
+        # below (LF, as every diff AiS ships) would no longer apply.
+        (workspace / "mod.py").write_text("def f():\n    return 1\n", encoding="utf-8", newline="\n")
+        (workspace / "test_mod.py").write_text(
+            "from mod import f\n\ndef test_f():\n    assert f() in (1, 2)\n", encoding="utf-8", newline="\n"
+        )
+        diff = "--- a/mod.py\n+++ b/mod.py\n@@ -1,2 +1,2 @@\n def f():\n-    return 1\n+    return 2\n"
+        bundle = build_bundle(root, diff, settings)
+        environment = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+        subprocess.run(
+            [sys.executable, str(bundle.control / "runner.py"), "--root", str(root)],
+            cwd=str(workspace), env=environment, capture_output=True, timeout=120,
+            **procutil.spawn_kwargs(),
+        )
+
+        report = json.loads((bundle.out / "result.json").read_text(encoding="utf-8"))
+        assert report["runner_error"] is None
+        assert report["patch_applied"] is True, report["patch_error"]
+        assert sorted(p.name for p in root.iterdir()) == ["ais", "out", "workspace"]
+
 
 class TestAllowlist:
     def test_the_host_temp_directory_is_allowlisted(self, settings):

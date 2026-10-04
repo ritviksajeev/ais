@@ -5,7 +5,7 @@
  * questions in this order and nothing else:
  *
  *   1. What is the AI trying to change?        (title, file, its own reason)
- *   2. Is it safe?                              (one coloured banner, one sentence)
+ *   2. Is it safe?                              (one coloured headline line, one sentence)
  *   3. What should I do?                        (two buttons, the safer one highlighted)
  *
  * A short checklist shows *why*, in everyday words. Every piece of technical
@@ -24,10 +24,10 @@ const POLL_MS = 350;
 /* ---------- the four steps a person sees ---------- */
 
 const STEPS = [
-  { name: "AI suggests a change", stages: ["request_received", "plan_built", "plan_rejected"] },
-  { name: "Tested in a safe copy", stages: ["sandbox_materialized", "diff_computed", "sandbox_executed"] },
-  { name: "Checked for risky behaviour", stages: ["verified"] },
-  { name: "You decide", stages: ["decided", "applied", "discarded", "errored"] },
+  { name: "Suggested",  full: "The AI suggests a change", stages: ["request_received", "plan_built", "plan_rejected"] },
+  { name: "Tested",     full: "Tested in a sealed copy", stages: ["sandbox_materialized", "diff_computed", "sandbox_executed"] },
+  { name: "Checked",    full: "Checked for risky behaviour", stages: ["verified"] },
+  { name: "You decide", full: "You decide", stages: ["decided", "applied", "discarded", "errored"] },
 ];
 const STAGE_TO_STEP = {};
 STEPS.forEach((step, i) => step.stages.forEach((s) => (STAGE_TO_STEP[s] = i)));
@@ -78,7 +78,9 @@ const CHECKS = [
 ];
 const KNOWN_RULES = new Set(CHECKS.flatMap((c) => c.rules));
 
-/* The banner, per verdict. ``recommend`` is the button that gets highlighted.
+/* The verdict, per outcome. ``word`` is the coloured second line of the
+   headline, so the answer is the biggest thing on the screen; ``recommend`` is
+   the button that gets highlighted.
    Only ever the safe one: Allow is never made the path of least resistance,
    because a security check that trains people to click through it has failed.
    A clean result says so in words; the click is still a choice. */
@@ -86,16 +88,16 @@ const KNOWN_RULES = new Set(CHECKS.flatMap((c) => c.rules));
    tested. Calling that "risky" would be a guess dressed as a finding, so it
    gets its own state: say plainly that there is no evidence either way, show
    the reason (for whoever has to fix it), and recommend not allowing. */
-const UNTESTED = { tone: "check", icon: "?", head: "Couldn't test this change",
+const UNTESTED = { tone: "check", icon: "?", word: "Couldn't be tested.",
   advice: "Recommended: don't allow it until the test area is working.", recommend: "reject" };
 const untested = (p) => p.findings.some((f) => f.rule_id === "sandbox.infrastructure");
 
 const BANNER = {
-  PASS:  { tone: "safe",  icon: "✓", head: "Looks safe",
+  PASS:  { tone: "safe",  icon: "✓", word: "Looks safe.",
            advice: "Nothing risky was found. Allow it if it's a change you expected.", recommend: null },
-  FLAG:  { tone: "check", icon: "!", head: "Check before allowing",
+  FLAG:  { tone: "check", icon: "!", word: "Worth a closer look.",
            advice: "Recommended: have a closer look, or ask IT, before allowing.", recommend: null },
-  BLOCK: { tone: "risk",  icon: "✕", head: "Blocked: this change did something risky",
+  BLOCK: { tone: "risk",  icon: "✕", word: "Did something risky.",
            advice: "Recommended: don't allow this change.", recommend: "reject" },
 };
 
@@ -109,11 +111,15 @@ let currentId = null;
 let submitting = false;
 let reached = -1;
 
+const pad = (n) => String(n).padStart(2, "0");
+const sectionBar = (left, middle, right, rightClass = "") =>
+  `<div class="sec-bar"><span><i class="dot"></i>${left}</span><span>${middle}</span><span class="${rightClass}">${right}</span></div>`;
+
 /* ---------- chrome ---------- */
 
 function drawSteps() {
   $("steps").innerHTML = STEPS.map((s, i) =>
-    `<li class="step" id="step-${i}"><span class="step-dot">${i + 1}</span><span class="step-name">${esc(s.name)}</span></li>`
+    `<li class="step" id="step-${i}" title="${esc(s.full)}"><span class="nl">${esc(s.name)}</span><sup>${pad(i + 1)}</sup></li>`
   ).join("");
 }
 
@@ -126,8 +132,8 @@ function markStep(index, active) {
 }
 
 function drawSheet() {
-  $("sheet-steps").innerHTML = HOW.map(([title, text]) =>
-    `<li><h3>${esc(title)}</h3><p>${esc(text)}</p></li>`).join("");
+  $("sheet-steps").innerHTML = HOW.map(([title, text], i) =>
+    `<li><p class="sheet-num">${pad(i + 1)}</p><h3>${esc(title)}</h3><p>${esc(text)}</p></li>`).join("");
 }
 
 /* ---------- polling ---------- */
@@ -152,7 +158,7 @@ async function poll() {
     if (done) return; // the summary stays on screen as a record
     say("Connection lost", "The AiS program has stopped, or its window was closed.");
     $("waiting").hidden = false;
-    document.querySelector(".spinner").classList.add("still");
+    document.querySelector(".progress").classList.add("still");
     return;
   }
   setTimeout(poll, POLL_MS);
@@ -171,7 +177,7 @@ function apply(state) {
     pill.title = run.isolated
       ? "Changes are tested inside an isolated container with no internet."
       : "Running without isolation. Only use this for demos.";
-    pill.className = "status-pill " + (run.isolated ? "on" : "warn");
+    pill.className = "status " + (run.isolated ? "on" : "warn");
   }
 
   if (state.events.length) {
@@ -212,50 +218,79 @@ function apply(state) {
 function drawRequest(p) {
   const el = $("request");
   const failed = untested(p);
-  const banner = failed ? UNTESTED : (BANNER[p.verdict] || BANNER.FLAG);
+  const v = failed ? UNTESTED : (BANNER[p.verdict] || BANNER.FLAG);
   const lead = failed
     ? "The sealed test area failed to run, so AiS has no evidence about what this change does."
     : p.summary;
   const reason = failed && p.execution.infrastructure_error
-    ? `<p class="banner-reason"><span>Reason, for IT</span>${esc(p.execution.infrastructure_error)}</p>` : "";
+    ? `<div class="verdict-reason"><span class="label">Reason, for IT</span>${esc(p.execution.infrastructure_error)}</div>` : "";
+  const caveat = p.caveat_lines && p.caveat_lines.length
+    ? `<p class="verdict-caveat">${esc(p.caveat_lines.join(" "))}</p>` : "";
   el.hidden = false;
   el.innerHTML = `
-    <p class="kicker">Change ${p.index} of ${p.total} · suggested by the AI assistant</p>
-    <h1 class="req-title">${esc(p.title)}</h1>
-    <p class="req-file">File: <span>${esc(p.targets.join(", "))}</span></p>
-    ${p.rationale ? `<blockquote class="claim"><span class="claim-label">What the AI says it did</span>${esc(p.rationale)}</blockquote>` : ""}
+    ${sectionBar(`(${pad(p.index)} / ${pad(p.total)})`, "(Suggested by the AI assistant)", esc(p.targets.join(", ")))}
+    <h1 class="title">${esc(p.title)}<span class="accent ${v.tone}">${esc(v.word)}</span></h1>
 
-    <div class="banner ${banner.tone}">
-      <div class="banner-icon" aria-hidden="true">${banner.icon}</div>
+    <div class="hero-grid">
       <div>
-        <p class="banner-head">${esc(banner.head)}</p>
-        <p class="banner-text">${esc(lead)}</p>
-        <p class="banner-advice">${esc(banner.advice)}</p>
-        ${reason}
-        ${p.caveat_lines && p.caveat_lines.length ? `<p class="banner-caveat">${esc(p.caveat_lines.join(" "))}</p>` : ""}
+        ${p.rationale ? `<div class="claim"><span class="label">What the AI says it did</span><p>${esc(p.rationale)}</p></div>` : ""}
+
+        <div class="verdict ${v.tone}">
+          <div class="verdict-mark" aria-hidden="true">${v.icon}</div>
+          <div class="verdict-body">
+            <p class="verdict-text">${esc(lead)}</p>
+            <p class="verdict-advice">${esc(v.advice)}</p>
+            ${caveat}
+            ${reason}
+          </div>
+        </div>
+
+        <div class="decide">
+          <button class="btn allow ${v.recommend === "allow" ? "primary" : ""}" type="button" data-act="approve">
+            <span>Allow change<kbd>A</kbd></span><span class="sub">Saved as a version you can undo</span></button>
+          <button class="btn reject ${v.recommend === "reject" ? "primary" : ""}" type="button" data-act="reject">
+            <span>Don't allow<kbd>R</kbd></span><span class="sub">Your file stays exactly as it is</span></button>
+        </div>
+        <p class="decide-note">Nothing changes in your files until you click <b>Allow</b>.</p>
+        <input class="note-input" id="reason" type="text" autocomplete="off"
+               placeholder="Add a note (optional, saved with your decision)">
+      </div>
+
+      <div class="term">
+        <div class="term-bar"><div class="term-dots"><span></span><span></span><span></span></div>
+          <div class="term-title">ais — what we checked</div></div>
+        <div class="term-body">
+          ${facts(p, failed)}
+          <ul class="checklist">${checklist(p)}</ul>
+        </div>
       </div>
     </div>
 
-    <h2 class="section-label">What we checked</h2>
-    <ul class="checklist">${checklist(p)}</ul>
-
-    <div class="decide">
-      <button class="btn allow ${banner.recommend === "allow" ? "primary" : ""}" type="button" data-act="approve">Allow change <kbd>A</kbd></button>
-      <button class="btn reject ${banner.recommend === "reject" ? "primary" : ""}" type="button" data-act="reject">Don't allow <kbd>R</kbd></button>
-    </div>
-    <p class="decide-note">Nothing changes in your files until you click <b>Allow</b>. If you allow it, it's saved as a normal version you can undo.</p>
-    <input class="note-input" id="reason" type="text" autocomplete="off"
-           placeholder="Add a note (optional, saved with your decision)">
-
     <details class="tech">
-      <summary>Show technical details <span>for IT and security teams</span></summary>
-      <div class="tech-body">${drawers(p)}</div>
+      <summary>${sectionBar("(Details)", "(For IT and security teams)", "", "toggle-word")}</summary>
+      <div class="drawers">${drawers(p)}</div>
     </details>`;
 
   el.querySelector("[data-act=approve]").addEventListener("click", () => decide(true));
   el.querySelector("[data-act=reject]").addEventListener("click", () => decide(false));
   wireTraceToggle(p);
   window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+/* Three facts at the top of the checklist card, in the AiS page's terminal
+   layout but in everyday words. */
+function facts(p, failed) {
+  const x = p.execution, t = x.tests;
+  const stats = p.diff_stats || { added: 0, removed: 0 };
+  const row = (k, v, tone = "") => `<div><span class="k">${esc(k)}</span><span class="v ${tone}">${esc(v)}</span></div>`;
+  const checks = failed ? ["didn't run", "warn"]
+    : t ? [`${t.passed} / ${t.total} passed`, t.all_passed ? "good" : "bad"]
+    : ["none ran", "warn"];
+  return `<div class="term-facts">
+    ${row("test area", x.isolated ? "sealed, no internet" : "not sealed (demo only)", x.isolated ? "" : "warn")}
+    ${row("checks", checks[0], checks[1])}
+    ${row("changed", `+${stats.added} −${stats.removed} lines`)}
+  </div>`;
 }
 
 function checklist(p) {
@@ -269,8 +304,10 @@ function checklist(p) {
   });
   const rows = CHECKS.map((c) => {
     const hit = c.rules.map((r) => fired.get(r)).filter(Boolean);
+    // The small print adds detail; it never just repeats the line above it.
+    const detail = [...new Set(hit.map((f) => f.plain || f.title))].filter((t) => t !== c.bad).join(" · ");
     return hit.length
-      ? `<li class="bad"><span class="mark">✕</span><span>${esc(c.bad)}<small>${esc(hit.map((f) => f.plain || f.title).join(" · "))}</small></span></li>`
+      ? `<li class="bad"><span class="mark">✕</span><span>${esc(c.bad)}${detail ? `<small>${esc(detail)}</small>` : ""}</span></li>`
       : `<li class="ok"><span class="mark">✓</span><span>${esc(c.ok)}</span></li>`;
   });
   const other = [...fired.values()].filter((f) => !KNOWN_RULES.has(f.rule_id));
@@ -475,29 +512,31 @@ function drawFinal(records, summary) {
 
   // The headline has to be true of this run: claiming nothing was written when
   // an edit was just saved would be the one lie this page cannot afford.
-  const headline = s.approved
-    ? `${s.approved} change${s.approved === 1 ? "" : "s"} allowed, ${s.rejected} stopped`
-    : "No changes were made to your files";
+  const [line, accent] = s.approved
+    ? [`${s.approved} allowed,`, `${s.rejected} stopped.`]
+    : ["No changes made", "to your files."];
+  const stat = (cls, n, label, sub) =>
+    `<div class="stat ${cls}"><div class="stat-num">${n}</div><div class="stat-label">${label}</div><div class="stat-sub">${sub}</div></div>`;
 
   el.innerHTML = `
-    <p class="kicker">All done</p>
-    <h1 class="req-title">${headline}</h1>
-    <div class="tally">
-      <div class="allowed"><div class="n">${s.approved}</div><div class="l">allowed</div></div>
-      <div class="blocked"><div class="n">${s.rejected}</div><div class="l">not allowed</div></div>
-      ${s.errored ? `<div><div class="n">${s.errored}</div><div class="l">couldn't test</div></div>` : ""}
+    ${sectionBar("(Done)", "(Run summary)", `${records.length} change${records.length === 1 ? "" : "s"} reviewed`)}
+    <h1 class="title">${esc(line)}<span class="accent">${esc(accent)}</span></h1>
+    <div class="stats">
+      ${stat("allowed", s.approved, "Allowed", "saved · can be undone")}
+      ${stat("blocked", s.rejected, "Not allowed", "files never touched")}
+      ${stat("errored", s.errored, "Couldn't test", "not applied")}
     </div>
-    <div class="scroll"><table class="summary">
+    <div class="table-wrap"><table class="summary">
       <thead><tr><th>Change</th><th>AiS said</th><th>What happened</th></tr></thead>
       <tbody>${rows}</tbody></table></div>
     <div class="decide final-actions">
-      <button class="btn" type="button" id="close-btn">Close</button>
-      <p class="note">Every step is recorded in the audit log (<span class="mono">python demo.py --audit</span>).</p>
+      <button class="btn" type="button" id="close-btn"><span>Close</span><span class="sub">Ends this review session</span></button>
+      <p class="note">Every step is in the audit log: python demo.py --audit</p>
     </div>`;
 
   $("close-btn").addEventListener("click", async () => {
     $("close-btn").disabled = true;
-    $("close-btn").textContent = "Closing…";
+    $("close-btn").firstElementChild.textContent = "Closing…";
     try { await api("/api/close", { method: "POST", body: "{}" }); } catch (err) { /* going away */ }
   });
   window.scrollTo({ top: 0, behavior: "smooth" });

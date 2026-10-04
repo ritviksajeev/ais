@@ -68,8 +68,10 @@ def main() -> int:
 
     try:
         # Snapshot before patching: the unedited copy is the second oracle, and
-        # it only exists for this one moment.
-        baseline = _snapshot(workspace, root / "baseline")
+        # it only exists for this one moment. It goes under the control
+        # directory, not the bundle root: under Docker the root is the
+        # container's "/", which the unprivileged sandbox user cannot write to.
+        baseline = _snapshot(workspace, control / "baseline")
         _apply_patch(control / "change.patch", workspace, report)
         if report["patch_applied"]:
             _run_tests(manifest, root, workspace, control, out, report)
