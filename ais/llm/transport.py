@@ -11,6 +11,9 @@ Two implementations satisfy :class:`Transport`:
 * :class:`LiveTransport` calls the Anthropic API. It imports the SDK lazily, so
   a machine that only ever replays never needs ``anthropic`` installed. When
   handed a ``record_dir`` it writes each round-trip to disk as a cassette.
+* :class:`OllamaTransport` does the same against a model running locally under
+  Ollama -- free, no account, no key, and no traffic leaves the machine. It
+  uses only the standard library.
 * :class:`ReplayTransport` reads those cassettes. No network, no key, no SDK.
   A missing cassette is a loud error that tells you how to record it, never a
   silent live fallback -- a replay that quietly went to the network would
@@ -38,6 +41,15 @@ PROTOCOL_VERSION = "1"
 #: The default model for the editor's own API calls. The product targets the
 #: most capable widely-available Claude model; override via settings/env.
 DEFAULT_MODEL = "claude-opus-5"
+
+#: The default local model for :class:`OllamaTransport`. A code-tuned model
+#: small enough for an ordinary laptop (about 4.7 GB). Smaller models are
+#: easier to steer with injected instructions than frontier ones -- which is a
+#: reason to demonstrate with one, not a reason to trust it.
+DEFAULT_OLLAMA_MODEL = "qwen2.5-coder:7b"
+
+#: Where Ollama listens unless ``OLLAMA_HOST`` says otherwise.
+DEFAULT_OLLAMA_URL = "http://localhost:11434"
 
 #: The editor's system prompt. Deliberately that of an ordinary, well-behaved
 #: coding assistant. AiS does not make the model safe -- it assumes the model
@@ -89,22 +101,6 @@ class Proposal:
     path: str
     content: str
     summary: str
-
-
-@dataclass(frozen=True)
-class _Recording:
-    """A cassette's payload: the semantic request and the model's answer."""
-
-    protocol: str
-    model: str
-    task_id: str
-    instruction: str
-    files_sha256: Mapping[str, str]
-    proposals: list[dict]
-    #: Provenance so a reader can tell a real recording from a hand-written
-    #: fixture without trusting the filename.
-    recorded: bool = True
-    stop_reason: str | None = None
 
 
 @runtime_checkable
@@ -169,9 +165,11 @@ class ReplayTransport:
             raise LlmError(
                 f"no cassette for task {task.task_id!r} under model {self.model!r}.\n"
                 f"  expected: {path}\n"
-                f"  record it once against the live API with:\n"
+                f"  record it once with a live model:\n"
                 f"    python demo.py --llm --record --only {task.task_id}\n"
-                f"  (needs ANTHROPIC_API_KEY or an `ant auth login` profile)"
+                f"      (Anthropic's API; needs ANTHROPIC_API_KEY)\n"
+                f"    python demo.py --llm --ollama --record --only {task.task_id}\n"
+                f"      (free, local; needs Ollama running and the model pulled)"
             )
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
@@ -291,29 +289,33 @@ class LiveTransport:
         return proposals
 
     def _record(self, task: EditTask, proposals: list[Proposal], stop_reason: str | None) -> None:
-        self.record_dir.mkdir(parents=True, exist_ok=True)
-        recording = _Recording(
-            protocol=PROTOCOL_VERSION,
-            model=self.model,
-            task_id=task.task_id,
-            instruction=task.instruction,
-            files_sha256=_files_sha256(task),
-            proposals=[{"path": p.path, "content": p.content, "summary": p.summary} for p in proposals],
-            recorded=True,
-            stop_reason=stop_reason,
-        )
-        path = self.record_dir / cassette_name(self.model, task)
-        payload = {
-            "protocol": recording.protocol,
-            "model": recording.model,
-            "task_id": recording.task_id,
-            "instruction": recording.instruction,
-            "files_sha256": recording.files_sha256,
-            "proposals": recording.proposals,
-            "recorded": recording.recorded,
-            "stop_reason": recording.stop_reason,
-        }
-        path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        write_cassette(self.record_dir, self.model, task, proposals, stop_reason)
+
+
+def write_cassette(
+    record_dir: Path,
+    model: str,
+    task: EditTask,
+    proposals: list[Proposal],
+    stop_reason: str | None,
+) -> Path:
+    """Save one round-trip as a cassette that :class:`ReplayTransport` can read."""
+    record_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "protocol": PROTOCOL_VERSION,
+        "model": model,
+        "task_id": task.task_id,
+        "instruction": task.instruction,
+        "files_sha256": _files_sha256(task),
+        "proposals": [{"path": p.path, "content": p.content, "summary": p.summary} for p in proposals],
+        # Provenance, so a reader can tell a real recording from a hand-written
+        # fixture without trusting the filename.
+        "recorded": True,
+        "stop_reason": stop_reason,
+    }
+    path = record_dir / cassette_name(model, task)
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return path
 
 
 def _render_task(task: EditTask) -> str:
@@ -336,10 +338,16 @@ def _parse_live_response(task: EditTask, response) -> list[Proposal]:
     text = next((b.text for b in response.content if getattr(b, "type", None) == "text"), None)
     if text is None:
         raise LlmError(f"model returned no text block for {task.task_id!r}")
+    return _proposals_from_text(task, text)
+
+
+def _proposals_from_text(task: EditTask, text: str) -> list[Proposal]:
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
         raise LlmError(f"model reply for {task.task_id!r} was not valid JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise LlmError(f"model reply for {task.task_id!r} was JSON but not an object")
 
     proposals = []
     for item in data.get("proposals", []):
@@ -358,6 +366,84 @@ def _parse_live_response(task: EditTask, response) -> list[Proposal]:
     return proposals
 
 
+class OllamaTransport:
+    """Calls a model served locally by Ollama, optionally recording each round-trip.
+
+    Free and offline: no account, no key, and the request never leaves the
+    machine. Uses ``urllib`` from the standard library, so it adds no
+    dependency. The reply is constrained to the same JSON schema the Anthropic
+    path uses and parsed by the same code, so a local model gets no looser a
+    contract than a hosted one.
+
+    ``opener`` stands in for ``urllib.request.urlopen`` in tests.
+    """
+
+    def __init__(
+        self,
+        model: str = DEFAULT_OLLAMA_MODEL,
+        record_dir: Path | None = None,
+        base_url: str = DEFAULT_OLLAMA_URL,
+        opener=None,
+        timeout_s: float = 600.0,
+    ) -> None:
+        self.model = model
+        self.record_dir = Path(record_dir) if record_dir else None
+        self.base_url = base_url.rstrip("/")
+        self.timeout_s = timeout_s
+        self._opener = opener
+
+    def _post(self, body: dict) -> dict:
+        import urllib.error
+        import urllib.request
+
+        request = urllib.request.Request(
+            f"{self.base_url}/api/chat",
+            data=json.dumps(body).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        opener = self._opener or urllib.request.urlopen
+        try:
+            with opener(request, timeout=self.timeout_s) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")[:300]
+            if exc.code == 404:
+                raise LlmError(
+                    f"Ollama does not have the model {self.model!r}. "
+                    f"Download it once with: ollama pull {self.model}"
+                ) from exc
+            raise LlmError(f"Ollama returned HTTP {exc.code}: {detail}") from exc
+        except (urllib.error.URLError, ConnectionError, TimeoutError) as exc:
+            raise LlmError(
+                f"could not reach Ollama at {self.base_url} ({exc}). "
+                "Is the Ollama app running? Install it from https://ollama.com"
+            ) from exc
+
+    def propose(self, task: EditTask) -> list[Proposal]:
+        body = {
+            "model": self.model,
+            "stream": False,
+            "format": _PROPOSAL_SCHEMA,
+            "messages": [
+                {"role": "system", "content": EDITOR_SYSTEM},
+                {"role": "user", "content": _render_task(task)},
+            ],
+            # Deterministic, and a context window large enough that the files
+            # are not silently truncated -- Ollama's default is small.
+            "options": {"temperature": 0, "num_ctx": 16384},
+        }
+        reply = self._post(body)
+        text = (reply.get("message") or {}).get("content")
+        if not text:
+            raise LlmError(f"Ollama returned no message content for {task.task_id!r}")
+        proposals = _proposals_from_text(task, text)
+        if self.record_dir is not None:
+            write_cassette(self.record_dir, self.model, task, proposals, reply.get("done_reason"))
+        return proposals
+
+
+
 # --------------------------------------------------------------------------
 # selection
 # --------------------------------------------------------------------------
@@ -368,12 +454,24 @@ def load_transport(
     cassette_dir: Path,
     model: str = DEFAULT_MODEL,
     record: bool = False,
+    provider: str = "anthropic",
+    ollama_url: str = DEFAULT_OLLAMA_URL,
 ) -> Transport:
-    """Pick a transport. ``mode`` is 'replay' (default, offline) or 'live'."""
+    """Pick a transport. ``mode`` is 'replay' (default, offline) or 'live'.
+
+    ``provider`` chooses who answers a live call: ``"anthropic"`` (the hosted
+    API, needs a key) or ``"ollama"`` (a local model, free). Replay does not
+    care -- a cassette is keyed by model name, whoever produced it.
+    """
     if mode == "replay":
         if record:
             raise LlmError("--record needs a live transport; it has nothing to record in replay mode")
         return ReplayTransport(cassette_dir, model=model)
     if mode == "live":
-        return LiveTransport(model=model, record_dir=cassette_dir if record else None)
+        record_dir = cassette_dir if record else None
+        if provider == "ollama":
+            return OllamaTransport(model=model, record_dir=record_dir, base_url=ollama_url)
+        if provider != "anthropic":
+            raise LlmError(f"unknown provider {provider!r}; expected 'anthropic' or 'ollama'")
+        return LiveTransport(model=model, record_dir=record_dir)
     raise LlmError(f"unknown transport mode {mode!r}; expected 'replay' or 'live'")

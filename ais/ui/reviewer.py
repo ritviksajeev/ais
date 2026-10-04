@@ -72,7 +72,9 @@ def pack_presentation(
     sandbox = report.sandbox
 
     trace = [_event(e) for e in sandbox.trace[:MAX_TRACE_SHOWN]]
-    findings = [a.to_dict() for a in report.findings]
+    # Each finding also carries its everyday-words form, so the checklist the
+    # page leads with never has to show a rule title.
+    findings = [_with_plain(a.to_dict()) for a in report.findings]
     advisories = [a.to_dict() for a in report.caveats]
     return {
         "request_id": request.request_id,
@@ -114,6 +116,12 @@ def pack_presentation(
         "trace": trace,
         "trace_total": len(sandbox.trace),
     }
+
+
+def _with_plain(finding: dict[str, Any]) -> dict[str, Any]:
+    phrase = plain.CONSEQUENCE.get(finding.get("rule_id", ""))
+    finding["plain"] = (phrase[0].upper() + phrase[1:]) if phrase else finding.get("title", "")
+    return finding
 
 
 def _diff_stats(diff: str) -> dict[str, int]:

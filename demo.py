@@ -8,6 +8,7 @@
     python demo.py --only plant-06 run one scenario (substring match)
     python demo.py --llm           propose edits with a live model (replays cassettes)
     python demo.py --llm --record  record fresh cassettes against the real API
+    python demo.py --llm --ollama --record   same, with a free local model (Ollama)
     python demo.py --rules         list the Verifier's rule set
     python demo.py --audit         show the audit log and verify its hash chain
     python demo.py --log           git log of the project under mediation
@@ -144,6 +145,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="with --llm, call the real API and save each round-trip as a cassette. "
         "Needs ANTHROPIC_API_KEY or an `ant auth login` profile",
     )
+    parser.add_argument(
+        "--ollama",
+        action="store_true",
+        help="with --llm, use a free model running locally under Ollama instead of "
+        "Anthropic's API (default model qwen2.5-coder:7b; override with --model)",
+    )
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="with --llm, the model to use (default: claude-opus-5, or "
+        "qwen2.5-coder:7b with --ollama)",
+    )
     parser.add_argument("--rules", action="store_true", help="list the rule set and exit")
     parser.add_argument("--audit", action="store_true", help="show the audit log and exit")
     parser.add_argument("--log", action="store_true", help="show the mediated git log and exit")
@@ -161,6 +174,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if arguments.record and not arguments.llm:
         console.print(Text("error: --record only applies to --llm runs.", style="bold red"))
+        return 2
+    if (arguments.ollama or arguments.model) and not arguments.llm:
+        console.print(Text("error: --ollama and --model only apply to --llm runs.", style="bold red"))
         return 2
 
     if arguments.rules:
@@ -186,6 +202,12 @@ def _settings_from(arguments: argparse.Namespace) -> Settings:
         )
     if arguments.memory:
         limits = replace(limits, memory_mb=arguments.memory)
+    if getattr(arguments, "ollama", False):
+        from ais.llm.transport import DEFAULT_OLLAMA_MODEL
+
+        settings = replace(settings, llm_provider="ollama", llm_model=DEFAULT_OLLAMA_MODEL)
+    if getattr(arguments, "model", None):
+        settings = replace(settings, llm_model=arguments.model)
     return replace(settings, limits=limits)
 
 
@@ -317,7 +339,12 @@ def _print_editor(settings: Settings, arguments: argparse.Namespace, requests) -
     here, plainly -- and then let the sandbox report what the code *actually*
     does. When those two disagree, that gap is the lesson.
     """
-    mode = "live API (recording)" if arguments.record else "replaying recorded answers (offline)"
+    if not arguments.record:
+        mode = "replaying recorded answers (offline)"
+    elif settings.llm_provider == "ollama":
+        mode = "local model via Ollama (recording, free)"
+    else:
+        mode = "live API (recording)"
     console.print()
     console.rule("[bold]the editor — a real model proposing edits", style="magenta")
     console.print(f"  model     {settings.llm_model}")

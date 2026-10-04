@@ -144,33 +144,41 @@ python demo.py --ui --no-browser # prints the URL instead
 ```
 
 It exists because the terminal shows you the evidence but not the *mechanism*,
-and because the evidence itself is more than most reviews need.
+and because the evidence itself is more than most reviews need. It is written
+for someone who has never heard of a sandbox or a diff — the office worker who
+would actually be asked to approve an AI assistant's change — and is styled
+like the approval screens they already use rather than like a developer tool.
 
-The page answers one question at a time. When a request arrives you see what the
-edit is, whether something is wrong with it **in one plain-English sentence**,
-and two buttons — "This edit opened a network connection and read a file outside
-its sandbox", not three finding cards with rule ids. Everything behind that
-sentence is one click away and none of it is open by default: the findings with
-their evidence, the diff, what the tests did, the operations the code performed,
-and which files were copied into the sandbox. A reviewer who wants the trace can
-always have it; a reviewer who does not should not have to scroll past it to
-reach a decision.
+When a change arrives, the page answers three questions in order: **what is the
+AI trying to change** (title, file, and the AI's own account of what it did),
+**is it safe** (one green, amber or red banner with a plain-English sentence —
+"This edit opened a network connection and read a file outside its safe test
+area", not three finding cards with rule ids), and **what should I do**. A short
+checklist shows why, in everyday words: *didn't try to connect to the internet*,
+*only touched the files it was meant to*, *existing checks still pass*, and so
+on. Every rule maps to a line; a rule added later without one is listed under
+"other checks" rather than silently dropped.
 
-The seven pipeline steps show as seven dots in the header, with the full
-explanation behind "How it works" rather than occupying a column.
+Everything technical — the findings with their evidence, the exact change, what
+the tests did, every operation the code performed, which files were copied — is
+behind **Show technical details**, closed by default. An IT or security reviewer
+loses nothing; an office worker does not have to scroll past it.
 
-Approve and Reject are deliberately the same visual weight. Styling approve as
-the primary call to action would make approving the path of least resistance,
-which is the habit this whole tool argues against.
+Progress shows as four plain steps (*AI suggests a change → tested in a safe
+copy → checked for risky behaviour → you decide*), with the full mechanism
+behind "How it works", explained through an anti-cheat analogy.
+
+Only the safe button is ever highlighted. On a risky change **Don't allow** is
+the primary action; on a clean one, both buttons stay equal. Styling Allow as
+the default would make approving the path of least resistance — the habit this
+whole tool argues against.
 
 Deliberate constraints:
 
 - **Standard library only, and no outbound request of any kind.** No framework,
   no build step, no CDN — not even for fonts. AiS already asks you to install
   Docker; and a review surface running next to the agent it is reviewing should
-  not be phoning anywhere. It works offline. The visual language is the one from
-  [evzero.org](https://evzero.org/ais), with system faces standing in for the
-  webfonts.
+  not be phoning anywhere. It works offline, using the system's own fonts.
 - **Loopback only, with a per-run token.** The page approves writes to real
   files, so it binds `127.0.0.1` and never `0.0.0.0` — and "localhost" still
   means every process on the machine, including whatever agent is being
@@ -192,7 +200,7 @@ which decide without a human.
 
 | Component | Where | Responsibility |
 |---|---|---|
-| **Editor** | `ais/editor/` | Emits `EditRequest`s. Scripted from `scenarios/scenarios.yaml`, not a live LLM — see [Assumptions](#assumptions-and-decisions). |
+| **Editor** | `ais/editor/` | Emits `EditRequest`s. Scripted from `scenarios/scenarios.yaml`, or a live model with `--llm` (Anthropic API or a free local model via Ollama). |
 | **Mediator** | `ais/mediator/` | The trust boundary. Scope checks, closure, materialising sandboxes, computing diffs, and committing approved ones. The only code that opens a real file. |
 | **Sandbox** | `ais/sandbox/` | Backends that execute a bundle under isolation. `docker_backend.py` is the real one; `local_backend.py` is a labelled fallback. |
 | **Verifier** | `ais/verifier/` | The rule engine over what the sandbox observed. Produces findings and an advisory verdict. |
@@ -395,7 +403,24 @@ or needs to tell, that the edit came from a model.
 python demo.py --llm --auto              # replay recorded proposals (offline)
 python demo.py --llm --ui                # review a model-driven run in the browser
 python demo.py --llm --record --auto     # call the real API and save cassettes
+python demo.py --llm --ollama --record --auto   # same, with a free local model
 ```
+
+**No API key? Use a free local model.** `--ollama` sends the same request to a
+model running on your own machine under [Ollama](https://ollama.com) — no
+account, no key, nothing leaves the laptop. The default is `qwen2.5-coder:7b`
+(about 4.7 GB); pick another with `--model`. Its answers are recorded and
+replayed exactly like the API's, and are held to the same JSON schema.
+
+```bash
+ollama pull qwen2.5-coder:7b                    # once
+python demo.py --llm --ollama --record --auto   # record its answers
+python demo.py --llm --ollama --ui              # replay them in the review UI
+```
+
+Smaller local models are easier to steer with injected instructions than
+frontier ones. That makes them a good demonstration of the threat, and no
+reason to trust them.
 
 Reproducibility survives the move through a **record/replay transport**
 (`ais/llm/transport.py`). A live call is how you demonstrate the threat; a
@@ -768,7 +793,7 @@ ais/                         (repository root)
 ├── sandbox_image/Dockerfile the sandbox image
 ├── sample_project/          the codebase under edit (+ 73 of its own tests)
 ├── scenarios/               scenarios.yaml, payloads/, build_payloads.py
-└── tests/                   415 tests for AiS itself
+└── tests/                   433 tests for AiS itself
 ```
 
 Runtime state lives in `.ais_run/` and is git-ignored: the seeded project, the

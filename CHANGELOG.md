@@ -2,6 +2,28 @@
 
 All notable changes to AiS are recorded here.
 
+## [Unreleased]
+
+### Added
+- **A free, local model option for the live editor (`--ollama`).** The editor
+  agent no longer needs an Anthropic API key: `python demo.py --llm --ollama
+  --record` asks a model running locally under Ollama (default
+  `qwen2.5-coder:7b`, any other via `--model`). Standard library only, held to
+  the same JSON schema, recorded to the same cassettes, and replayed the same
+  way. Configurable with `AIS_LLM_PROVIDER=ollama` and `OLLAMA_HOST`. 18 tests,
+  none of which touch the network.
+
+### Changed
+- **The review UI is now an office "security check" screen.** Light, plain, and
+  styled like the approval prompts people already use, for the person who would
+  actually be asked to approve an AI's change. One green/amber/red banner, the
+  AI's own account of what it did, a six-line checklist in everyday words, and
+  two buttons; everything technical is behind "Show technical details". Progress
+  is four plain steps instead of seven dots, and "How it works" explains the
+  mechanism through an anti-cheat analogy. Only the safe button is ever
+  highlighted, so approving never becomes the default.
+- Plain-English summaries say "safe test area" instead of "sandbox".
+
 ## [0.1.5-alpha] — 2026-10-04
 
 ### Added
