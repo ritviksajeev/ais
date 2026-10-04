@@ -165,11 +165,16 @@ class TestSandboxBundle:
 
         The sandbox user can write only inside workspace, ais and out, so a
         runner that creates anything else at the root fails every run there.
+
+        The runner is started directly rather than through the local backend:
+        what is under test is where it writes, and the backend's process cap
+        is per user on macOS, where it cannot start the test run at all.
         """
         import json
+        import os
 
+        from ais.sandbox import procutil
         from ais.sandbox.base import build_bundle
-        from ais.sandbox.local_backend import LocalSandbox
 
         root = tmp_path / "sandbox"
         workspace = root / "workspace"
@@ -180,7 +185,12 @@ class TestSandboxBundle:
         )
         diff = "--- a/mod.py\n+++ b/mod.py\n@@ -1,2 +1,2 @@\n def f():\n-    return 1\n+    return 2\n"
         bundle = build_bundle(root, diff, settings)
-        LocalSandbox(settings).run("req-1", bundle, settings)
+        environment = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+        subprocess.run(
+            [sys.executable, str(bundle.control / "runner.py"), "--root", str(root)],
+            cwd=str(workspace), env=environment, capture_output=True, timeout=120,
+            **procutil.spawn_kwargs(),
+        )
 
         report = json.loads((bundle.out / "result.json").read_text(encoding="utf-8"))
         assert report["runner_error"] is None
