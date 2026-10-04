@@ -82,6 +82,14 @@ const KNOWN_RULES = new Set(CHECKS.flatMap((c) => c.rules));
    Only ever the safe one: Allow is never made the path of least resistance,
    because a security check that trains people to click through it has failed.
    A clean result says so in words; the click is still a choice. */
+/* When the sealed test area itself failed, the change was never actually
+   tested. Calling that "risky" would be a guess dressed as a finding, so it
+   gets its own state: say plainly that there is no evidence either way, show
+   the reason (for whoever has to fix it), and recommend not allowing. */
+const UNTESTED = { tone: "check", icon: "?", head: "Couldn't test this change",
+  advice: "Recommended: don't allow it until the test area is working.", recommend: "reject" };
+const untested = (p) => p.findings.some((f) => f.rule_id === "sandbox.infrastructure");
+
 const BANNER = {
   PASS:  { tone: "safe",  icon: "✓", head: "Looks safe",
            advice: "Nothing risky was found. Allow it if it's a change you expected.", recommend: null },
@@ -159,7 +167,7 @@ function apply(state) {
   const run = state.run || {};
   const pill = $("protection");
   if (run.backend) {
-    pill.textContent = run.isolated ? "● Protected: sealed test area on" : "● Warning: no sealed test area";
+    pill.textContent = run.isolated ? "Sealed test area on" : "No sealed test area";
     pill.title = run.isolated
       ? "Changes are tested inside an isolated container with no internet."
       : "Running without isolation. Only use this for demos.";
@@ -203,7 +211,13 @@ function apply(state) {
 
 function drawRequest(p) {
   const el = $("request");
-  const banner = BANNER[p.verdict] || BANNER.FLAG;
+  const failed = untested(p);
+  const banner = failed ? UNTESTED : (BANNER[p.verdict] || BANNER.FLAG);
+  const lead = failed
+    ? "The sealed test area failed to run, so AiS has no evidence about what this change does."
+    : p.summary;
+  const reason = failed && p.execution.infrastructure_error
+    ? `<p class="banner-reason"><span>Reason, for IT</span>${esc(p.execution.infrastructure_error)}</p>` : "";
   el.hidden = false;
   el.innerHTML = `
     <p class="kicker">Change ${p.index} of ${p.total} · suggested by the AI assistant</p>
@@ -215,8 +229,9 @@ function drawRequest(p) {
       <div class="banner-icon" aria-hidden="true">${banner.icon}</div>
       <div>
         <p class="banner-head">${esc(banner.head)}</p>
-        <p class="banner-text">${esc(p.summary)}</p>
+        <p class="banner-text">${esc(lead)}</p>
         <p class="banner-advice">${esc(banner.advice)}</p>
+        ${reason}
         ${p.caveat_lines && p.caveat_lines.length ? `<p class="banner-caveat">${esc(p.caveat_lines.join(" "))}</p>` : ""}
       </div>
     </div>
@@ -244,6 +259,10 @@ function drawRequest(p) {
 }
 
 function checklist(p) {
+  if (untested(p)) {
+    return CHECKS.map((c) =>
+      `<li class="unknown"><span class="mark">–</span><span>${esc(c.ok)}<small>not checked: the test didn't run</small></span></li>`).join("");
+  }
   const fired = new Map();
   p.findings.forEach((f) => {
     if (!fired.has(f.rule_id)) fired.set(f.rule_id, f);
@@ -443,8 +462,10 @@ function drawFinal(records, summary) {
   const s = summary || { approved: 0, rejected: 0, errored: 0 };
   const rows = records.map((r) => {
     const [cls, words] = OUTCOME[r.outcome] || ["", r.outcome];
-    const tone = (BANNER[r.verdict] || {}).tone || "";
-    const verdict = { PASS: "Looked safe", FLAG: "Needed a look", BLOCK: "Risky" }[r.verdict] || "—";
+    const failed = (r.rules || []).includes("sandbox.infrastructure");
+    const tone = failed ? "check" : ((BANNER[r.verdict] || {}).tone || "");
+    const verdict = failed ? "Couldn't test"
+      : ({ PASS: "Looked safe", FLAG: "Needed a look", BLOCK: "Risky" }[r.verdict] || "—");
     return `<tr>
       <td>${esc(r.title)}</td>
       <td><span class="chip ${tone}">${esc(verdict)}</span></td>
