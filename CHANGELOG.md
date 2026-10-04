@@ -2,7 +2,7 @@
 
 All notable changes to AiS are recorded here.
 
-## [Unreleased]
+## [0.1.5-alpha] — 2026-10-04
 
 ### Added
 - **A live editor agent — the untrusted party, finally real.** For its whole
