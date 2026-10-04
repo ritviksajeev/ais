@@ -179,9 +179,11 @@ class TestSandboxBundle:
         root = tmp_path / "sandbox"
         workspace = root / "workspace"
         workspace.mkdir(parents=True)
-        (workspace / "mod.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+        # newline="\n": on Windows, text mode would write CRLF, and the patch
+        # below (LF, as every diff AiS ships) would no longer apply.
+        (workspace / "mod.py").write_text("def f():\n    return 1\n", encoding="utf-8", newline="\n")
         (workspace / "test_mod.py").write_text(
-            "from mod import f\n\ndef test_f():\n    assert f() in (1, 2)\n", encoding="utf-8"
+            "from mod import f\n\ndef test_f():\n    assert f() in (1, 2)\n", encoding="utf-8", newline="\n"
         )
         diff = "--- a/mod.py\n+++ b/mod.py\n@@ -1,2 +1,2 @@\n def f():\n-    return 1\n+    return 2\n"
         bundle = build_bundle(root, diff, settings)
@@ -194,7 +196,7 @@ class TestSandboxBundle:
 
         report = json.loads((bundle.out / "result.json").read_text(encoding="utf-8"))
         assert report["runner_error"] is None
-        assert report["patch_applied"] is True
+        assert report["patch_applied"] is True, report["patch_error"]
         assert sorted(p.name for p in root.iterdir()) == ["ais", "out", "workspace"]
 
 
