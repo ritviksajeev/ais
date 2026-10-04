@@ -3,7 +3,7 @@
 Standard library only, on purpose. AiS already asks a user to install Docker;
 asking them to install a web framework and run a build step to see what the
 tool does would defeat the point of building a UI in the first place. The
-whole front end is three static files served from disk.
+whole front end is three static files and three bundled fonts, served from disk.
 
 Two things about the binding are deliberate. It listens on ``127.0.0.1`` and
 never on ``0.0.0.0``: this page approves changes to real files, so it must not
@@ -39,6 +39,7 @@ CONTENT_TYPES = {
     ".css": "text/css; charset=utf-8",
     ".js": "text/javascript; charset=utf-8",
     ".svg": "image/svg+xml",
+    ".woff2": "font/woff2",
     ".json": "application/json",
 }
 

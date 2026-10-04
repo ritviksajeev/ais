@@ -203,6 +203,23 @@ class TestServing:
             assert response.status == 200
             assert response.headers["Content-Type"] == content_type
 
+    def test_the_bundled_fonts_are_served_and_requested_with_the_token(self, server):
+        body = get(f"http://127.0.0.1:{server.port}/?t={server.token}").read().decode()
+        for name in ("inter", "unbounded", "jetbrains-mono"):
+            # A url() in the page cannot send the header, so it carries the token.
+            assert f"/static/fonts/{name}.woff2?t={server.token}" in body
+            response = get(f"http://127.0.0.1:{server.port}/static/fonts/{name}.woff2", token=server.token)
+            assert response.headers["Content-Type"] == "font/woff2"
+            assert response.read()[:4] == b"wOF2"
+
+    def test_the_page_requests_nothing_off_this_machine(self, server):
+        # It runs beside the agent it reviews, on the machine it guards.
+        for path in ("/", "/static/app.css", "/static/app.js"):
+            body = get(f"http://127.0.0.1:{server.port}{path}?t={server.token}").read().decode()
+            # The SVG namespace is an identifier, never fetched.
+            body = body.replace("http://www.w3.org/2000/svg", "")
+            assert "https://" not in body and "http://" not in body
+
     def test_the_page_is_served_as_html(self, server):
         response = get(f"http://127.0.0.1:{server.port}/?t={server.token}")
         assert response.headers["Content-Type"] == "text/html; charset=utf-8"
