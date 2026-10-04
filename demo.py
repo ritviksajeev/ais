@@ -6,6 +6,8 @@
     python demo.py --auto          non-interactive; follows the Verifier
     python demo.py --eval          run everything and write the results table
     python demo.py --only plant-06 run one scenario (substring match)
+    python demo.py --llm           propose edits with a live model (replays cassettes)
+    python demo.py --llm --record  record fresh cassettes against the real API
     python demo.py --rules         list the Verifier's rule set
     python demo.py --audit         show the audit log and verify its hash chain
     python demo.py --log           git log of the project under mediation
@@ -33,7 +35,7 @@ from ais.config import Settings  # noqa: E402
 from ais.evaluation import Evaluation, evaluate, to_markdown  # noqa: E402
 from ais.mediator import gitops  # noqa: E402
 from ais.models import Outcome  # noqa: E402
-from ais.pipeline import Pipeline, RunSummary, load_editor  # noqa: E402
+from ais.pipeline import Pipeline, RunSummary, load_editor, load_model_editor  # noqa: E402
 from ais.review import AutoReviewer, CliReviewer  # noqa: E402
 from ais.sandbox import SandboxUnavailable  # noqa: E402
 from ais.verifier import rule_catalogue  # noqa: E402
@@ -130,6 +132,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path(__file__).resolve().parent / "REDTEAM.md",
         help="with --redteam, where to write the campaign report",
     )
+    parser.add_argument(
+        "--llm",
+        action="store_true",
+        help="propose edits with a live model instead of the scripted scenarios. "
+        "Runs from recorded cassettes by default (offline, deterministic)",
+    )
+    parser.add_argument(
+        "--record",
+        action="store_true",
+        help="with --llm, call the real API and save each round-trip as a cassette. "
+        "Needs ANTHROPIC_API_KEY or an `ant auth login` profile",
+    )
     parser.add_argument("--rules", action="store_true", help="list the rule set and exit")
     parser.add_argument("--audit", action="store_true", help="show the audit log and exit")
     parser.add_argument("--log", action="store_true", help="show the mediated git log and exit")
@@ -144,6 +158,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     arguments = build_parser().parse_args(argv)
     settings = _settings_from(arguments)
+
+    if arguments.record and not arguments.llm:
+        console.print(Text("error: --record only applies to --llm runs.", style="bold red"))
+        return 2
 
     if arguments.rules:
         return show_rules()
@@ -177,12 +195,15 @@ def _settings_from(arguments: argparse.Namespace) -> Settings:
 
 
 def run_pipeline(settings: Settings, arguments: argparse.Namespace) -> int:
-    editor = load_editor(settings)
     try:
+        editor = load_model_editor(settings, arguments) if arguments.llm else load_editor(settings)
         requests = editor.select(arguments.only)
     except Exception as exc:  # editor errors are user errors, not stack traces
         console.print(Text(f"error: {exc}", style="bold red"))
         return 2
+
+    if arguments.llm:
+        _print_editor(settings, arguments, requests)
 
     if arguments.ui:
         if arguments.auto or arguments.eval:
@@ -285,6 +306,40 @@ def run_in_browser(settings: Settings, arguments: argparse.Namespace, requests) 
         return 2
     _print_summary(summary)
     return code
+
+
+def _print_editor(settings: Settings, arguments: argparse.Namespace, requests) -> None:
+    """Show what the model was asked and what it decided, before it is checked.
+
+    This is the whole reason the editor exists as its own visible stage: the
+    model is the untrusted actor, and the point AiS makes is that you cannot
+    trust its own account of what it did. So we print its self-reported summary
+    here, plainly -- and then let the sandbox report what the code *actually*
+    does. When those two disagree, that gap is the lesson.
+    """
+    mode = "live API (recording)" if arguments.record else "replaying recorded answers (offline)"
+    console.print()
+    console.rule("[bold]the editor — a real model proposing edits", style="magenta")
+    console.print(f"  model     {settings.llm_model}")
+    console.print(f"  mode      {mode}")
+    console.print(
+        Text(
+            "  the model is the untrusted party here. What it says it did is below;\n"
+            "  what it actually did is what the sandbox reports next.",
+            style="dim",
+        )
+    )
+
+    table = Table(header_style="dim", expand=True, show_lines=False)
+    table.add_column("task", style="cyan", no_wrap=True)
+    table.add_column("what the model was asked")
+    table.add_column("what the model says it did", style="italic")
+
+    for request in requests:
+        table.add_row(request.request_id, request.title, request.rationale or "—")
+
+    console.print()
+    console.print(table)
 
 
 def _print_header(pipeline: Pipeline, count: int) -> None:

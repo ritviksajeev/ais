@@ -74,6 +74,11 @@ class Paths:
     def reports(self) -> Path:
         return self.run_root / "reports"
 
+    @property
+    def cassettes(self) -> Path:
+        """Recorded model round-trips, committed so replay works offline."""
+        return PROJECT_ROOT / "cassettes"
+
 
 #: Paths inside the Linux sandbox image, plus this host's own temp directory.
 #: The host entry matters only for the local backend, where the run happens on
@@ -109,6 +114,8 @@ class Settings:
     base_image: str = DEFAULT_BASE_IMAGE
     #: ``"docker"``, ``"local"``, or ``"auto"`` (docker when reachable).
     backend: str = "auto"
+    #: Model used by the live editor agent. Overridable via ``AIS_LLM_MODEL``.
+    llm_model: str = "claude-opus-5"
     #: Interpreter used to launch the in-sandbox runner. Must be on ``PATH``
     #: inside the sandbox image; ``python:3.11-slim`` provides ``python``.
     python_executable: str = "python"
@@ -130,6 +137,8 @@ class Settings:
             settings = replace(settings, sandbox_image=image)
         if backend := os.environ.get("AIS_BACKEND"):
             settings = replace(settings, backend=backend)
+        if model := os.environ.get("AIS_LLM_MODEL"):
+            settings = replace(settings, llm_model=model)
         return settings
 
     def ensure_dirs(self) -> None:
