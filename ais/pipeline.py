@@ -411,5 +411,7 @@ def load_model_editor(settings: Settings, arguments=None):
         settings.paths.cassettes,
         model=settings.llm_model,
         record=record,
+        provider=settings.llm_provider,
+        ollama_url=settings.ollama_url,
     )
     return ModelEditor(transport, build_tasks(settings))

@@ -116,6 +116,11 @@ class Settings:
     backend: str = "auto"
     #: Model used by the live editor agent. Overridable via ``AIS_LLM_MODEL``.
     llm_model: str = "claude-opus-5"
+    #: Who answers a live editor call: ``"anthropic"`` (hosted, needs a key) or
+    #: ``"ollama"`` (a local model, free). Overridable via ``AIS_LLM_PROVIDER``.
+    llm_provider: str = "anthropic"
+    #: Where a local Ollama server listens. Overridable via ``OLLAMA_HOST``.
+    ollama_url: str = "http://localhost:11434"
     #: Interpreter used to launch the in-sandbox runner. Must be on ``PATH``
     #: inside the sandbox image; ``python:3.11-slim`` provides ``python``.
     python_executable: str = "python"
@@ -137,8 +142,17 @@ class Settings:
             settings = replace(settings, sandbox_image=image)
         if backend := os.environ.get("AIS_BACKEND"):
             settings = replace(settings, backend=backend)
+        if provider := os.environ.get("AIS_LLM_PROVIDER"):
+            settings = replace(settings, llm_provider=provider)
+        if settings.llm_provider == "ollama":
+            from ais.llm.transport import DEFAULT_OLLAMA_MODEL
+
+            settings = replace(settings, llm_model=DEFAULT_OLLAMA_MODEL)
         if model := os.environ.get("AIS_LLM_MODEL"):
             settings = replace(settings, llm_model=model)
+        if host := os.environ.get("OLLAMA_HOST"):
+            url = host if "://" in host else f"http://{host}"
+            settings = replace(settings, ollama_url=url)
         return settings
 
     def ensure_dirs(self) -> None:

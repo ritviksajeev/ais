@@ -21,8 +21,8 @@ from typing import Iterable, Sequence
 #: that happened, in words a person who has never read the source would use.
 CONSEQUENCE = {
     "net.egress": "opened a network connection",
-    "fs.escape_write": "wrote to a file outside its sandbox",
-    "fs.escape_read": "read a file outside its sandbox",
+    "fs.escape_write": "wrote to a file outside its safe test area",
+    "fs.escape_read": "read a file outside its safe test area",
     "proc.spawn": "started another program",
     "proc.dynamic_load": "loaded native code while running",
     "proc.suspicious_import": "pulled in a capability this project never uses",
@@ -41,8 +41,8 @@ CONSEQUENCE = {
 #: Advisory rules describe the *run*, not the edit, so they are their own
 #: sentences rather than clauses about what the edit did.
 CAVEAT = {
-    "sandbox.not_isolated": "There was no real sandbox around this run, so anything the code did, it did for real.",
-    "sandbox.infrastructure": "The sandbox itself failed, so nothing below was actually verified.",
+    "sandbox.not_isolated": "There was no real sealed test area around this run, so anything the code did, it did for real.",
+    "sandbox.infrastructure": "The sealed test area itself failed, so nothing below was actually verified.",
     "sandbox.tracer_absent": "Nothing was watching the code run, so a clean result here proves nothing.",
     "sandbox.trace_truncated": "The record of what happened is incomplete, so something may be missing.",
     "behaviour.probe_absent": "The before-and-after comparison did not finish, so nothing here rules out a silent change in what the code returns.",
@@ -60,7 +60,7 @@ def summarise(findings: Sequence[dict]) -> str:
     """One sentence for what the edit did, from the findings themselves."""
     phrases = _phrases(findings)
     if not phrases:
-        return "It ran, the tests passed, and it did nothing outside its sandbox."
+        return "It ran, the existing checks passed, and it did nothing outside its safe test area."
     return "This edit " + _join(phrases) + "."
 
 

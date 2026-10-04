@@ -6,7 +6,8 @@ was a :class:`~ais.editor.scripted.ScriptedEditor` reading a fixed YAML file,
 so the pipeline's numbers would be reproducible. This package lets a live model
 occupy that seat instead, without giving up reproducibility: every call goes
 through a :class:`Transport` that can *record* a real API round-trip to disk and
-*replay* it later with no network and no API key.
+*replay* it later with no network and no API key. A live call can go to
+Anthropic's API or, for free, to a model running locally under Ollama.
 
 That split is deliberate. A live call is how you demonstrate the threat; a
 replayed cassette is how you put the demonstration in a test suite, in CI, and
@@ -19,6 +20,7 @@ from ais.llm.transport import (
     EditTask,
     LlmError,
     LiveTransport,
+    OllamaTransport,
     Proposal,
     ReplayTransport,
     Transport,
@@ -30,6 +32,7 @@ __all__ = [
     "EditTask",
     "LlmError",
     "LiveTransport",
+    "OllamaTransport",
     "Proposal",
     "ReplayTransport",
     "Transport",

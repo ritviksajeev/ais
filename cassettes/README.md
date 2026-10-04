@@ -19,7 +19,15 @@ recording can never masquerade as a fresh one.
 # needs ANTHROPIC_API_KEY, or an `ant auth login` profile
 python demo.py --llm --record --auto            # record every task
 python demo.py --llm --record --only llm-04     # record one
+
+# free alternative: a local model under Ollama (no key, no account)
+ollama pull qwen2.5-coder:7b
+python demo.py --llm --ollama --record --auto
 ```
+
+A cassette is keyed on the model name too, so Ollama recordings and API
+recordings sit side by side; replay picks the right one by the model you run
+with (`--ollama` or `--model`).
 
 `--record` implies live calls. Without it, `--llm` replays only and errors
 clearly if a cassette is missing, naming the command to record it.

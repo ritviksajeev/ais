@@ -362,7 +362,7 @@ class TestPlainEnglish:
         assert not missing, f"rules with no plain-English form: {missing}"
 
     def test_no_findings_reads_as_reassurance_not_silence(self):
-        assert "nothing outside its sandbox" in plain.summarise([])
+        assert "nothing outside its safe test area" in plain.summarise([])
 
     @pytest.mark.parametrize(
         "rule_ids,expected",
@@ -370,11 +370,11 @@ class TestPlainEnglish:
             (["net.egress"], "This edit opened a network connection."),
             (
                 ["net.egress", "fs.escape_read"],
-                "This edit opened a network connection and read a file outside its sandbox.",
+                "This edit opened a network connection and read a file outside its safe test area.",
             ),
             (
                 ["net.egress", "fs.escape_read", "proc.spawn"],
-                "This edit opened a network connection, read a file outside its sandbox, "
+                "This edit opened a network connection, read a file outside its safe test area, "
                 "and started another program.",
             ),
         ],
@@ -393,7 +393,7 @@ class TestPlainEnglish:
 
     def test_advisories_are_separate_sentences_about_the_run(self):
         lines = plain.caveats([{"rule_id": "sandbox.not_isolated"}])
-        assert lines and "no real sandbox" in lines[0]
+        assert lines and "no real sealed test area" in lines[0]
 
     def test_every_verdict_has_a_lead(self):
         for verdict in Verdict:
