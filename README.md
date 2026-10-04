@@ -146,8 +146,9 @@ python demo.py --ui --no-browser # prints the URL instead
 It exists because the terminal shows you the evidence but not the *mechanism*,
 and because the evidence itself is more than most reviews need. It is written
 for someone who has never heard of a sandbox or a diff — the office worker who
-would actually be asked to approve an AI assistant's change — and is styled
-like the approval screens they already use rather than like a developer tool.
+would actually be asked to approve an AI assistant's change. It is dark and
+minimal, in the [evzero.org](https://evzero.org) design language: hairline
+borders, one purple accent, and colour kept for meaning only.
 
 When a change arrives, the page answers three questions in order: **what is the
 AI trying to change** (title, file, and the AI's own account of what it did),
@@ -167,6 +168,11 @@ loses nothing; an office worker does not have to scroll past it.
 Progress shows as four plain steps (*AI suggests a change → tested in a safe
 copy → checked for risky behaviour → you decide*), with the full mechanism
 behind "How it works", explained through an anti-cheat analogy.
+
+If the sealed test area itself fails, the page does not call the change risky
+or safe: it says **"Couldn't test this change"**, marks every checklist line as
+not checked, shows the reason for whoever has to fix it, and recommends not
+allowing. A guess dressed up as a finding would be worse than no answer.
 
 Only the safe button is ever highlighted. On a risky change **Don't allow** is
 the primary action; on a clean one, both buttons stay equal. Styling Allow as

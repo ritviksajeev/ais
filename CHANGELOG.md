@@ -14,15 +14,22 @@ All notable changes to AiS are recorded here.
   none of which touch the network.
 
 ### Changed
-- **The review UI is now an office "security check" screen.** Light, plain, and
-  styled like the approval prompts people already use, for the person who would
-  actually be asked to approve an AI's change. One green/amber/red banner, the
+- **The review UI is now an office "security check" screen.** Dark, minimal and
+  in the evzero.org design language, written for the person who would actually
+  be asked to approve an AI's change. One green/amber/red banner, the
   AI's own account of what it did, a six-line checklist in everyday words, and
   two buttons; everything technical is behind "Show technical details". Progress
   is four plain steps instead of seven dots, and "How it works" explains the
   mechanism through an anti-cheat analogy. Only the safe button is ever
   highlighted, so approving never becomes the default.
 - Plain-English summaries say "safe test area" instead of "sandbox".
+
+### Fixed
+- **A failed sandbox no longer looks like a risky change.** When the sealed test
+  area itself fails, the review page used to show the same red "did something
+  risky" banner as a real catch, with the actual error hidden in the technical
+  details. It now says "Couldn't test this change", marks the checklist as not
+  checked, and shows the error on the main screen.
 
 ## [0.1.5-alpha] — 2026-10-04
 
