@@ -251,12 +251,12 @@ function checklist(p) {
   const rows = CHECKS.map((c) => {
     const hit = c.rules.map((r) => fired.get(r)).filter(Boolean);
     return hit.length
-      ? `<li class="bad"><span class="mark">✕</span><span>${esc(c.bad)}<small>${esc(hit.map((f) => f.title).join(" · "))}</small></span></li>`
+      ? `<li class="bad"><span class="mark">✕</span><span>${esc(c.bad)}<small>${esc(hit.map((f) => f.plain || f.title).join(" · "))}</small></span></li>`
       : `<li class="ok"><span class="mark">✓</span><span>${esc(c.ok)}</span></li>`;
   });
   const other = [...fired.values()].filter((f) => !KNOWN_RULES.has(f.rule_id));
   if (other.length) {
-    rows.push(`<li class="bad"><span class="mark">✕</span><span>Other checks raised a concern<small>${esc(other.map((f) => f.title).join(" · "))}</small></span></li>`);
+    rows.push(`<li class="bad"><span class="mark">✕</span><span>Other checks raised a concern<small>${esc(other.map((f) => f.plain || f.title).join(" · "))}</small></span></li>`);
   }
   return rows.join("");
 }

@@ -268,6 +268,16 @@ class TestPacking:
         # cross the boundary is a blank screen rather than a caught error.
         json.dumps(pack_presentation(presentation))
 
+    def test_every_finding_carries_an_everyday_phrase(self):
+        # The checklist an office user reads shows this phrase, never a rule
+        # title, so jargon like "sandbox workspace" stays behind the details.
+        from ais.ui.reviewer import _with_plain
+
+        packed = _with_plain({"rule_id": "fs.escape_read", "title": "Read a path outside the sandbox workspace"})
+        assert packed["plain"] == "Read a file outside its safe test area"
+        unknown = _with_plain({"rule_id": "something.new", "title": "Something new"})
+        assert unknown["plain"] == "Something new"
+
     def test_a_huge_trace_is_capped(self, presentation):
         from ais.ui.reviewer import MAX_TRACE_SHOWN
 
