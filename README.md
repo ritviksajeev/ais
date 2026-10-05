@@ -3,7 +3,7 @@
 **A sandboxed, execution-verified mediation layer for AI file-editing agents.**
 
 [![tests](https://github.com/ritviksajeev/ais/actions/workflows/ci.yml/badge.svg)](https://github.com/ritviksajeev/ais/actions/workflows/ci.yml)
-![version](https://img.shields.io/badge/version-v0.1.5--alpha-a78bfa)
+![version](https://img.shields.io/badge/version-v0.1.6--alpha-a78bfa)
 ![python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![platform](https://img.shields.io/badge/host-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)
 ![license](https://img.shields.io/badge/license-MIT-green)
