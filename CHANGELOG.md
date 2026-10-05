@@ -4,6 +4,8 @@ All notable changes to AiS are recorded here.
 
 ## [Unreleased]
 
+## [0.1.6-alpha] — 2026-10-05
+
 ### Added
 - **A free, local model option for the live editor (`--ollama`).** The editor
   agent no longer needs an Anthropic API key: `python demo.py --llm --ollama
@@ -402,6 +404,8 @@ First public alpha. The full pipeline works end to end and the evaluation runs.
   `ctypes` can act beneath it.
 - One language, one project shape. Verification is one-shot.
 
+[0.1.6-alpha]: https://github.com/ritviksajeev/ais/releases/tag/v0.1.6-alpha
+[0.1.5-alpha]: https://github.com/ritviksajeev/ais/releases/tag/v0.1.5-alpha
 [0.1.4-alpha]: https://github.com/ritviksajeev/ais/releases/tag/v0.1.4-alpha
 [0.1.3-alpha]: https://github.com/ritviksajeev/ais/releases/tag/v0.1.3-alpha
 [0.1.2-alpha]: https://github.com/ritviksajeev/ais/releases/tag/v0.1.2-alpha
